@@ -1,0 +1,14 @@
+{
+  "tasks": [],
+  "edges": [],
+  "groups": [],
+  "folders": [],
+  "tags": [],
+  "layout": {
+    "positions": {},
+    "groupRects": {},
+    "folderRects": {
+      "__inbox__": { "x": 40, "y": 40, "w": 400, "h": 1200 }
+    }
+  }
+}
