@@ -66,12 +66,41 @@ Open [http://localhost:3000](http://localhost:3000) — you will be redirected t
 
 ---
 
+## Push to your GitHub (public)
+
+From the project root (after [installing GitHub CLI](https://cli.github.com/)):
+
+```bash
+gh auth login
+git remote add origin https://github.com/YOUR_USERNAME/algo-todo-list.git
+git push -u origin main
+```
+
+Or create the repo and push in one step:
+
+```bash
+gh auth login
+gh repo create algo-todo-list --public --source=. --remote=origin --push
+```
+
+Replace `algo-todo-list` with another name if that slug is taken.
+
+---
+
 ## Deploy on Vercel
 
-1. Push this repo to GitHub (see below).
-2. [Import the project](https://vercel.com/new) in Vercel.
+1. Push this repo to GitHub (section above).
+2. [Import the project](https://vercel.com/new) in Vercel (log in with GitHub).
 3. Add **Environment Variables** → `AUTH_SECRET` = long random string (e.g. `openssl rand -base64 32`).
 4. Deploy.
+
+CLI alternative (after `npm i -g vercel` and `vercel login`):
+
+```bash
+vercel --prod
+```
+
+Set `AUTH_SECRET` in the Vercel project **Settings → Environment Variables** for Production.
 
 **Persistence note:** Vercel’s filesystem is ephemeral. Task data is kept **in memory per instance** and resets when the function cold-starts. For durable cloud storage, plug in a database or KV later—the API shape is already JSON-friendly.
 
