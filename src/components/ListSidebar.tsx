@@ -1,7 +1,15 @@
 "use client";
 
 import { useState, type ReactNode } from "react";
-import { FolderOpen, Inbox, LayoutGrid, Plus, Tag, Trash2 } from "lucide-react";
+import {
+  FolderOpen,
+  Inbox,
+  LayoutGrid,
+  Pencil,
+  Plus,
+  Tag,
+  Trash2,
+} from "lucide-react";
 import { INBOX_FOLDER_KEY, type NavFolderId } from "@/lib/types";
 import { useAppStore } from "@/lib/store";
 
@@ -13,12 +21,20 @@ export function ListSidebar() {
   const setNavFolderId = useAppStore((s) => s.setNavFolderId);
   const setNavTagId = useAppStore((s) => s.setNavTagId);
   const addFolder = useAppStore((s) => s.addFolder);
+  const updateFolder = useAppStore((s) => s.updateFolder);
   const deleteFolder = useAppStore((s) => s.deleteFolder);
   const addTag = useAppStore((s) => s.addTag);
+  const updateTag = useAppStore((s) => s.updateTag);
   const deleteTag = useAppStore((s) => s.deleteTag);
 
   const [folderDraft, setFolderDraft] = useState("");
   const [tagDraft, setTagDraft] = useState("");
+  const [editingFolderId, setEditingFolderId] = useState<string | null>(null);
+  const [folderEditName, setFolderEditName] = useState("");
+  const [folderEditColor, setFolderEditColor] = useState("");
+  const [editingTagId, setEditingTagId] = useState<string | null>(null);
+  const [tagEditName, setTagEditName] = useState("");
+  const [tagEditColor, setTagEditColor] = useState("");
 
   const navBtn = (id: NavFolderId, label: string, icon: ReactNode) => (
     <button
@@ -51,27 +67,107 @@ export function ListSidebar() {
             <Inbox className="h-3.5 w-3.5 shrink-0 opacity-70" />,
           )}
           {folders.map((f) => (
-            <div key={f.id} className="group flex items-center gap-0.5">
-              <button
-                type="button"
-                onClick={() => setNavFolderId(f.id)}
-                className={`flex min-w-0 flex-1 items-center gap-2 rounded-lg px-2 py-2 text-left text-xs transition-colors ${
-                  navFolderId === f.id
-                    ? "bg-[var(--accent)]/20 text-[var(--accent)]"
-                    : "text-zinc-400 hover:bg-white/5 hover:text-zinc-200"
-                }`}
-              >
-                <FolderOpen className="h-3.5 w-3.5 shrink-0 opacity-70" />
-                <span className="truncate">{f.name}</span>
-              </button>
-              <button
-                type="button"
-                title="删除文件夹"
-                className="shrink-0 rounded p-1.5 text-zinc-600 opacity-0 hover:bg-white/5 hover:text-red-400 group-hover:opacity-100"
-                onClick={() => deleteFolder(f.id)}
-              >
-                <Trash2 className="h-3 w-3" />
-              </button>
+            <div key={f.id} className="group flex flex-col gap-1 rounded-lg py-0.5">
+              {editingFolderId === f.id ? (
+                <div className="flex flex-col gap-1.5 rounded-lg border border-[var(--panel-border)] bg-[var(--bg-deep)] p-2">
+                  <input
+                    className="w-full rounded border border-zinc-700/60 bg-[var(--panel-bg)] px-2 py-1 text-xs text-zinc-200 outline-none focus:border-[var(--accent)]"
+                    value={folderEditName}
+                    onChange={(e) => setFolderEditName(e.target.value)}
+                    placeholder="文件夹名称"
+                    autoFocus
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        updateFolder(f.id, {
+                          name: folderEditName,
+                          color: folderEditColor,
+                        });
+                        setEditingFolderId(null);
+                      }
+                      if (e.key === "Escape") setEditingFolderId(null);
+                    }}
+                  />
+                  <label className="flex items-center gap-2 text-[10px] text-zinc-500">
+                    颜色
+                    <input
+                      type="color"
+                      className="h-6 w-10 cursor-pointer rounded border border-zinc-700/60 bg-transparent"
+                      value={folderEditColor || "#38bdf8"}
+                      onChange={(e) => setFolderEditColor(e.target.value)}
+                    />
+                    <button
+                      type="button"
+                      className="text-zinc-500 underline hover:text-zinc-300"
+                      onClick={() => setFolderEditColor("")}
+                    >
+                      清除
+                    </button>
+                  </label>
+                  <div className="flex gap-1">
+                    <button
+                      type="button"
+                      className="flex-1 rounded bg-[var(--accent)] py-1 text-[10px] font-medium text-[var(--bg-deep)]"
+                      onClick={() => {
+                        updateFolder(f.id, {
+                          name: folderEditName,
+                          color: folderEditColor,
+                        });
+                        setEditingFolderId(null);
+                      }}
+                    >
+                      保存
+                    </button>
+                    <button
+                      type="button"
+                      className="rounded border border-zinc-700/60 px-2 py-1 text-[10px] text-zinc-400"
+                      onClick={() => setEditingFolderId(null)}
+                    >
+                      取消
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="flex items-center gap-0.5">
+                  <button
+                    type="button"
+                    onClick={() => setNavFolderId(f.id)}
+                    className={`flex min-w-0 flex-1 items-center gap-2 rounded-lg px-2 py-2 text-left text-xs transition-colors ${
+                      navFolderId === f.id
+                        ? "bg-[var(--accent)]/20 text-[var(--accent)]"
+                        : "text-zinc-400 hover:bg-white/5 hover:text-zinc-200"
+                    }`}
+                  >
+                    <span
+                      className="h-2 w-2 shrink-0 rounded-full bg-zinc-500"
+                      style={
+                        f.color ? { backgroundColor: f.color } : undefined
+                      }
+                    />
+                    <FolderOpen className="h-3.5 w-3.5 shrink-0 opacity-70" />
+                    <span className="truncate">{f.name}</span>
+                  </button>
+                  <button
+                    type="button"
+                    title="编辑"
+                    className="shrink-0 rounded p-1.5 text-zinc-600 opacity-0 hover:bg-white/5 hover:text-[var(--accent)] group-hover:opacity-100"
+                    onClick={() => {
+                      setEditingFolderId(f.id);
+                      setFolderEditName(f.name);
+                      setFolderEditColor(f.color ?? "");
+                    }}
+                  >
+                    <Pencil className="h-3 w-3" />
+                  </button>
+                  <button
+                    type="button"
+                    title="删除文件夹"
+                    className="shrink-0 rounded p-1.5 text-zinc-600 opacity-0 hover:bg-white/5 hover:text-red-400 group-hover:opacity-100"
+                    onClick={() => deleteFolder(f.id)}
+                  >
+                    <Trash2 className="h-3 w-3" />
+                  </button>
+                </div>
+              )}
             </div>
           ))}
         </nav>
@@ -120,32 +216,106 @@ export function ListSidebar() {
         </button>
         <ul className="flex flex-col gap-1 overflow-y-auto">
           {tags.map((t) => (
-            <li key={t.id} className="group flex items-center gap-1">
-              <button
-                type="button"
-                onClick={() =>
-                  setNavTagId(navTagId === t.id ? null : t.id)
-                }
-                className={`flex min-w-0 flex-1 items-center gap-2 rounded-lg px-2 py-1.5 text-left text-xs ${
-                  navTagId === t.id
-                    ? "bg-fuchsia-500/15 text-fuchsia-300"
-                    : "text-zinc-400 hover:bg-white/5"
-                }`}
-              >
-                <span
-                  className="h-2 w-2 shrink-0 rounded-full bg-zinc-500"
-                  style={t.color ? { backgroundColor: t.color } : undefined}
-                />
-                <span className="truncate">{t.name}</span>
-              </button>
-              <button
-                type="button"
-                className="shrink-0 rounded p-1 text-zinc-600 opacity-0 hover:text-red-400 group-hover:opacity-100"
-                title="删除标签"
-                onClick={() => deleteTag(t.id)}
-              >
-                <Trash2 className="h-3 w-3" />
-              </button>
+            <li key={t.id} className="group flex flex-col gap-1 py-0.5">
+              {editingTagId === t.id ? (
+                <div className="flex flex-col gap-1.5 rounded-lg border border-[var(--panel-border)] bg-[var(--bg-deep)] p-2">
+                  <input
+                    className="w-full rounded border border-zinc-700/60 bg-[var(--panel-bg)] px-2 py-1 text-xs text-zinc-200 outline-none focus:border-[var(--accent)]"
+                    value={tagEditName}
+                    onChange={(e) => setTagEditName(e.target.value)}
+                    placeholder="标签名称"
+                    autoFocus
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        updateTag(t.id, {
+                          name: tagEditName,
+                          color: tagEditColor,
+                        });
+                        setEditingTagId(null);
+                      }
+                      if (e.key === "Escape") setEditingTagId(null);
+                    }}
+                  />
+                  <label className="flex items-center gap-2 text-[10px] text-zinc-500">
+                    颜色
+                    <input
+                      type="color"
+                      className="h-6 w-10 cursor-pointer rounded border border-zinc-700/60 bg-transparent"
+                      value={tagEditColor || "#c026d3"}
+                      onChange={(e) => setTagEditColor(e.target.value)}
+                    />
+                    <button
+                      type="button"
+                      className="text-zinc-500 underline hover:text-zinc-300"
+                      onClick={() => setTagEditColor("")}
+                    >
+                      清除
+                    </button>
+                  </label>
+                  <div className="flex gap-1">
+                    <button
+                      type="button"
+                      className="flex-1 rounded bg-[var(--accent)] py-1 text-[10px] font-medium text-[var(--bg-deep)]"
+                      onClick={() => {
+                        updateTag(t.id, {
+                          name: tagEditName,
+                          color: tagEditColor,
+                        });
+                        setEditingTagId(null);
+                      }}
+                    >
+                      保存
+                    </button>
+                    <button
+                      type="button"
+                      className="rounded border border-zinc-700/60 px-2 py-1 text-[10px] text-zinc-400"
+                      onClick={() => setEditingTagId(null)}
+                    >
+                      取消
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="flex items-center gap-1">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setNavTagId(navTagId === t.id ? null : t.id)
+                    }
+                    className={`flex min-w-0 flex-1 items-center gap-2 rounded-lg px-2 py-1.5 text-left text-xs ${
+                      navTagId === t.id
+                        ? "bg-fuchsia-500/15 text-fuchsia-300"
+                        : "text-zinc-400 hover:bg-white/5"
+                    }`}
+                  >
+                    <span
+                      className="h-2 w-2 shrink-0 rounded-full bg-zinc-500"
+                      style={t.color ? { backgroundColor: t.color } : undefined}
+                    />
+                    <span className="truncate">{t.name}</span>
+                  </button>
+                  <button
+                    type="button"
+                    className="shrink-0 rounded p-1 text-zinc-600 opacity-0 hover:text-[var(--accent)] group-hover:opacity-100"
+                    title="编辑标签"
+                    onClick={() => {
+                      setEditingTagId(t.id);
+                      setTagEditName(t.name);
+                      setTagEditColor(t.color ?? "");
+                    }}
+                  >
+                    <Pencil className="h-3 w-3" />
+                  </button>
+                  <button
+                    type="button"
+                    className="shrink-0 rounded p-1 text-zinc-600 opacity-0 hover:text-red-400 group-hover:opacity-100"
+                    title="删除标签"
+                    onClick={() => deleteTag(t.id)}
+                  >
+                    <Trash2 className="h-3 w-3" />
+                  </button>
+                </div>
+              )}
             </li>
           ))}
         </ul>

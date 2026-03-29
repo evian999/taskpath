@@ -60,8 +60,16 @@ type AppState = AppData & {
   updateGroupName: (groupId: string, name: string) => void;
   syncCanvasLayout: (nodes: Node[]) => void;
   addFolder: (name: string) => void;
+  updateFolder: (
+    folderId: string,
+    patch: { name?: string; color?: string | undefined },
+  ) => void;
   deleteFolder: (folderId: string) => void;
   addTag: (name: string) => void;
+  updateTag: (
+    tagId: string,
+    patch: { name?: string; color?: string | undefined },
+  ) => void;
   deleteTag: (tagId: string) => void;
   setTaskFolder: (taskId: string, folderId: string | undefined) => void;
   toggleTaskTag: (taskId: string, tagId: string) => void;
@@ -543,6 +551,26 @@ export const useAppStore = create<AppState>((set, get) => ({
     get().scheduleSave();
   },
 
+  updateFolder: (folderId, patch) => {
+    set((s) => ({
+      folders: s.folders.map((f) => {
+        if (f.id !== folderId) return f;
+        const next = { ...f };
+        if (patch.name !== undefined) {
+          const n = patch.name.trim();
+          if (n) next.name = n;
+        }
+        if (patch.color !== undefined) {
+          if (patch.color === "" || patch.color === undefined)
+            delete next.color;
+          else next.color = patch.color;
+        }
+        return next;
+      }),
+    }));
+    get().scheduleSave();
+  },
+
   deleteFolder: (folderId) => {
     set((s) => {
       const { [folderId]: _, ...folderRects } = s.layout.folderRects;
@@ -562,6 +590,26 @@ export const useAppStore = create<AppState>((set, get) => ({
     const trimmed = name.trim() || "标签";
     set((s) => ({
       tags: [...s.tags, { id: newId(), name: trimmed }],
+    }));
+    get().scheduleSave();
+  },
+
+  updateTag: (tagId, patch) => {
+    set((s) => ({
+      tags: s.tags.map((t) => {
+        if (t.id !== tagId) return t;
+        const next = { ...t };
+        if (patch.name !== undefined) {
+          const n = patch.name.trim();
+          if (n) next.name = n;
+        }
+        if (patch.color !== undefined) {
+          if (patch.color === "" || patch.color === undefined)
+            delete next.color;
+          else next.color = patch.color;
+        }
+        return next;
+      }),
     }));
     get().scheduleSave();
   },

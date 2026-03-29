@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Trash2 } from "lucide-react";
+import { Pencil, Trash2 } from "lucide-react";
 import type { Task } from "@/lib/types";
 import { INBOX_FOLDER_KEY } from "@/lib/types";
 import { useAppStore } from "@/lib/store";
@@ -16,11 +16,14 @@ export function ListMode() {
   const navTagId = useAppStore((s) => s.navTagId);
   const addTask = useAppStore((s) => s.addTask);
   const deleteTask = useAppStore((s) => s.deleteTask);
+  const updateTask = useAppStore((s) => s.updateTask);
   const uncompleteTask = useAppStore((s) => s.uncompleteTask);
   const setTaskFolder = useAppStore((s) => s.setTaskFolder);
   const toggleTaskTag = useAppStore((s) => s.toggleTaskTag);
   const [draft, setDraft] = useState("");
   const [completeTarget, setCompleteTarget] = useState<Task | null>(null);
+  const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
+  const [taskTitleDraft, setTaskTitleDraft] = useState("");
 
   const sorted = useMemo(() => {
     let list = [...tasks];
@@ -91,15 +94,35 @@ export function ListMode() {
                   }}
                 />
                 <div className="min-w-0 flex-1">
-                  <p
-                    className={`text-sm font-medium ${
-                      task.completedAt
-                        ? "text-zinc-500 line-through"
-                        : "text-zinc-100"
-                    }`}
-                  >
-                    {task.title}
-                  </p>
+                  {editingTaskId === task.id ? (
+                    <input
+                      className="w-full rounded-md border border-[var(--accent)] bg-[var(--bg-deep)] px-2 py-1.5 text-sm text-zinc-100 outline-none"
+                      value={taskTitleDraft}
+                      onChange={(e) => setTaskTitleDraft(e.target.value)}
+                      autoFocus
+                      onBlur={() => {
+                        const t = taskTitleDraft.trim();
+                        if (t) updateTask(task.id, { title: t });
+                        setEditingTaskId(null);
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+                        if (e.key === "Escape") {
+                          setEditingTaskId(null);
+                        }
+                      }}
+                    />
+                  ) : (
+                    <p
+                      className={`text-sm font-medium ${
+                        task.completedAt
+                          ? "text-zinc-500 line-through"
+                          : "text-zinc-100"
+                      }`}
+                    >
+                      {task.title}
+                    </p>
+                  )}
                   <p className="mt-0.5 text-xs text-zinc-600">
                     {new Date(task.createdAt).toLocaleString()}
                   </p>
@@ -164,14 +187,27 @@ export function ListMode() {
                     </p>
                   ) : null}
                 </div>
-                <button
-                  type="button"
-                  className="shrink-0 self-start rounded p-2 text-zinc-600 hover:bg-white/5 hover:text-red-400"
-                  title="删除"
-                  onClick={() => deleteTask(task.id)}
-                >
-                  <Trash2 className="h-4 w-4" />
-                </button>
+                <div className="flex shrink-0 flex-col gap-0.5 self-start sm:flex-row">
+                  <button
+                    type="button"
+                    className="rounded p-2 text-zinc-600 hover:bg-white/5 hover:text-[var(--accent)]"
+                    title="编辑标题"
+                    onClick={() => {
+                      setEditingTaskId(task.id);
+                      setTaskTitleDraft(task.title);
+                    }}
+                  >
+                    <Pencil className="h-4 w-4" />
+                  </button>
+                  <button
+                    type="button"
+                    className="rounded p-2 text-zinc-600 hover:bg-white/5 hover:text-red-400"
+                    title="删除"
+                    onClick={() => deleteTask(task.id)}
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </button>
+                </div>
               </li>
             ))}
           </ul>
