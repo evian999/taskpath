@@ -50,3 +50,4 @@ next-env.d.ts
 /data/users.json
 
 .vercel
+.backup
