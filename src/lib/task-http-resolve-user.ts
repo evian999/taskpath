@@ -18,10 +18,12 @@ async function findUserIdByTokenRedisScan(token: string): Promise<string | null>
   if (!r) return null;
   let cursor: string | number = 0;
   for (;;) {
-    const [next, keys] = await r.scan(cursor, {
+    const scanResult = await r.scan(cursor, {
       match: "algo-todo:v1:*",
       count: 100,
     });
+    const nextCursor: string | number = scanResult[0];
+    const keys = scanResult[1];
     for (const key of keys) {
       const raw = await r.get(key);
       if (raw == null) continue;
@@ -38,8 +40,8 @@ async function findUserIdByTokenRedisScan(token: string): Promise<string | null>
         return userId || null;
       }
     }
-    if (next === "0" || next === 0) break;
-    cursor = next;
+    if (nextCursor === "0" || nextCursor === 0) break;
+    cursor = nextCursor;
   }
   return null;
 }
