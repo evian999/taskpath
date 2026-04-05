@@ -6,6 +6,8 @@ import { useEffect, useState } from "react";
 import type { Task } from "@/lib/types";
 import { INBOX_FOLDER_KEY, taskFolderKey } from "@/lib/types";
 import { useAppStore } from "@/lib/store";
+import { TagBadge } from "@/components/TagBadge";
+import { priorityCheckboxBorder } from "@/lib/task-priority-ui";
 
 export type TaskNodeData = { task: Task };
 
@@ -14,6 +16,7 @@ export function TaskNode({ data, selected }: NodeProps) {
   const done = Boolean(task.completedAt);
   const deleteTask = useAppStore((s) => s.deleteTask);
   const updateTask = useAppStore((s) => s.updateTask);
+  const toggleTaskTag = useAppStore((s) => s.toggleTaskTag);
   const folders = useAppStore((s) => s.folders);
   const tags = useAppStore((s) => s.tags);
 
@@ -36,7 +39,7 @@ export function TaskNode({ data, selected }: NodeProps) {
 
   return (
     <div
-      className={`task-node min-w-[200px] max-w-[280px] rounded-lg border bg-[var(--node-bg)] px-3 py-2 shadow-[0_0_20px_rgba(56,189,248,0.06)] backdrop-blur-sm transition-colors ${
+      className={`task-node relative z-[1] min-w-[200px] max-w-[280px] rounded-lg border bg-[var(--node-bg)] px-3 py-2 shadow-[0_0_20px_rgba(56,189,248,0.06)] backdrop-blur-sm transition-colors ${
         selected
           ? "border-[var(--accent)] ring-1 ring-[var(--accent)]"
           : "border-[var(--node-border)] hover:border-[var(--node-border-hover)]"
@@ -45,16 +48,28 @@ export function TaskNode({ data, selected }: NodeProps) {
       <Handle
         type="target"
         position={Position.Left}
-        className="!h-2.5 !w-2.5 !border !border-[var(--accent)] !bg-[var(--bg-deep)]"
+        className="!z-20 !h-2.5 !w-2.5 !border !border-[var(--accent)] !bg-[var(--bg-deep)]"
       />
       <div className="flex items-start gap-2">
         <span
-          className={`mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded border-2 transition-colors ${
+          className={`mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-sm border-2 transition-colors ${
             done
               ? "border-[var(--accent)] bg-[var(--accent)]/15 text-[var(--accent)]"
-              : "border-zinc-500/80 bg-transparent"
+              : ""
           }`}
-          title={done ? "已完成" : "未完成"}
+          style={
+            !done
+              ? {
+                  backgroundColor: "var(--checkbox-unchecked-fill)",
+                  borderColor: priorityCheckboxBorder(task.priority),
+                }
+              : undefined
+          }
+          title={
+            task.priority === undefined
+              ? "未完成（无优先级）"
+              : "未完成时边框颜色表示优先级"
+          }
         >
           {done ? <Check className="h-2.5 w-2.5" strokeWidth={3} /> : null}
         </span>
@@ -92,21 +107,12 @@ export function TaskNode({ data, selected }: NodeProps) {
           {taskTags.length > 0 ? (
             <div className="mt-1.5 flex flex-wrap gap-1">
               {taskTags.map((tg) => (
-                <span
+                <TagBadge
                   key={tg!.id}
-                  className="rounded px-1.5 py-0.5 text-[10px] text-zinc-400 ring-1 ring-zinc-600/60"
-                  style={
-                    tg!.color
-                      ? {
-                          color: tg!.color,
-                          borderColor: tg!.color,
-                          boxShadow: `inset 0 0 0 1px ${tg!.color}40`,
-                        }
-                      : undefined
-                  }
-                >
-                  {tg!.name}
-                </span>
+                  tag={tg!}
+                  tagIndex={tags.findIndex((x) => x.id === tg!.id)}
+                  onRemove={() => toggleTaskTag(task.id, tg!.id)}
+                />
               ))}
             </div>
           ) : null}
@@ -143,7 +149,7 @@ export function TaskNode({ data, selected }: NodeProps) {
       <Handle
         type="source"
         position={Position.Right}
-        className="!h-2.5 !w-2.5 !border !border-[var(--accent)] !bg-[var(--bg-deep)]"
+        className="!z-20 !h-2.5 !w-2.5 !border !border-[var(--accent)] !bg-[var(--bg-deep)]"
       />
     </div>
   );

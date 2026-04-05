@@ -1,22 +1,17 @@
-import { mkdir, readFile, writeFile } from "fs/promises";
+import { mkdir, writeFile } from "fs/promises";
 import { join } from "path";
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import { getMemoryStore, setMemoryStore } from "@/lib/memory-store";
+import { loadAppDataForUser } from "@/lib/load-user-app-data";
 import {
   isRedisConfigured,
-  loadFromRedis,
   saveToRedis,
 } from "@/lib/redis-store";
 import { COOKIE, verifySessionToken } from "@/lib/session";
 import { isSupabaseConfigured } from "@/lib/supabase/admin";
-import {
-  loadAppDataFromSupabase,
-  saveAppDataToSupabase,
-} from "@/lib/supabase/app-data";
+import { saveAppDataToSupabase } from "@/lib/supabase/app-data";
 import { parseAppData } from "@/lib/validate";
-
-const STORE_LEGACY = join(process.cwd(), "data", "store.json");
 
 function userStorePath(userId: string) {
   return join(process.cwd(), "data", "stores", `${userId}.json`);
@@ -40,52 +35,19 @@ export async function GET() {
   }
 
   try {
+    const data = await loadAppDataForUser(userId);
+    return NextResponse.json(data);
+  } catch (e) {
+    console.error("[api/data] GET failed:", e);
     if (isSupabaseConfigured()) {
-      try {
-        const data = await loadAppDataFromSupabase(userId);
-        setMemoryStore(data);
-        return NextResponse.json(data);
-      } catch (e) {
-        console.error("[api/data] Supabase load failed:", e);
-        return NextResponse.json(
-          {
-            error:
-              "从数据库加载失败，请检查 Supabase 配置与 SQL 迁移是否已执行",
-          },
-          { status: 503 },
-        );
-      }
+      return NextResponse.json(
+        {
+          error:
+            "从数据库加载失败，请检查 Supabase 配置与 SQL 迁移是否已执行",
+        },
+        { status: 503 },
+      );
     }
-
-    if (isRedisConfigured()) {
-      const fromRedis = await loadFromRedis(userId);
-      if (fromRedis) {
-        setMemoryStore(fromRedis);
-        return NextResponse.json(fromRedis);
-      }
-    }
-
-    await mkdir(join(process.cwd(), "data", "stores"), { recursive: true });
-    try {
-      const buf = await readFile(userStorePath(userId), "utf-8");
-      const data = parseAppData(JSON.parse(buf));
-      setMemoryStore(data);
-      return NextResponse.json(data);
-    } catch {
-      /* no per-user file */
-    }
-
-    try {
-      const buf = await readFile(STORE_LEGACY, "utf-8");
-      const data = parseAppData(JSON.parse(buf));
-      setMemoryStore(data);
-      return NextResponse.json(data);
-    } catch {
-      /* no legacy file */
-    }
-
-    return NextResponse.json(getMemoryStore());
-  } catch {
     return NextResponse.json(getMemoryStore());
   }
 }

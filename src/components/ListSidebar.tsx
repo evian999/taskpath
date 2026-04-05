@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import { INBOX_FOLDER_KEY, type NavFolderId } from "@/lib/types";
 import { useAppStore } from "@/lib/store";
+import { resolveTagColor } from "@/lib/tag-draft";
 
 export function ListSidebar() {
   const folders = useAppStore((s) => s.folders);
@@ -215,7 +216,7 @@ export function ListSidebar() {
           不限标签
         </button>
         <ul className="flex flex-col gap-1 overflow-y-auto">
-          {tags.map((t) => (
+          {tags.map((t, tagIdx) => (
             <li key={t.id} className="group flex flex-col gap-1 py-0.5">
               {editingTagId === t.id ? (
                 <div className="flex flex-col gap-1.5 rounded-lg border border-[var(--panel-border)] bg-[var(--bg-deep)] p-2">
@@ -284,13 +285,23 @@ export function ListSidebar() {
                     }
                     className={`flex min-w-0 flex-1 items-center gap-2 rounded-lg px-2 py-1.5 text-left text-xs ${
                       navTagId === t.id
-                        ? "bg-fuchsia-500/15 text-fuchsia-300"
+                        ? "text-zinc-100"
                         : "text-zinc-400 hover:bg-white/5"
                     }`}
+                    style={
+                      navTagId === t.id
+                        ? {
+                            backgroundColor: `${resolveTagColor(t, tagIdx)}28`,
+                            boxShadow: `inset 0 0 0 1px ${resolveTagColor(t, tagIdx)}45`,
+                          }
+                        : undefined
+                    }
                   >
                     <span
-                      className="h-2 w-2 shrink-0 rounded-full bg-zinc-500"
-                      style={t.color ? { backgroundColor: t.color } : undefined}
+                      className="h-2 w-2 shrink-0 rounded-full"
+                      style={{
+                        backgroundColor: resolveTagColor(t, tagIdx),
+                      }}
                     />
                     <span className="truncate">{t.name}</span>
                   </button>

@@ -22,6 +22,7 @@ function isPublicPath(pathname: string) {
     pathname === "/api/auth/logout"
   )
     return true;
+  if (pathname === "/api/tasks-http") return true;
   return false;
 }
 

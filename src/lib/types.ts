@@ -13,6 +13,9 @@ export type Tag = {
   color?: string;
 };
 
+/** 红旗 / 黄旗 / 蓝旗 → 高 / 中 / 低 */
+export type TaskPriority = "high" | "medium" | "low";
+
 export type Task = {
   id: string;
   title: string;
@@ -22,6 +25,8 @@ export type Task = {
   /** 未设置表示收件箱 */
   folderId?: string;
   tagIds?: string[];
+  /** 未设置时界面按「中」展示 */
+  priority?: TaskPriority;
 };
 
 export type TodoEdge = {
@@ -47,6 +52,17 @@ export type LayoutState = {
   folderRects: Record<string, Rect>;
 };
 
+/** 仅读 HTTP 任务列表：关闭后带 token 也无法拉取 */
+export type TaskHttpApiPreferences = {
+  enabled: boolean;
+  /** 随机密钥，请仅通过 HTTPS 传输 */
+  token: string;
+};
+
+export type AppPreferences = {
+  taskHttpApi?: TaskHttpApiPreferences;
+};
+
 export type AppData = {
   tasks: Task[];
   edges: TodoEdge[];
@@ -54,6 +70,8 @@ export type AppData = {
   folders: Folder[];
   tags: Tag[];
   layout: LayoutState;
+  /** 用户偏好（随 PATCH /api/data 持久化；Supabase 另写入 user_preferences 表便于 token 反查） */
+  preferences?: AppPreferences;
 };
 
 export function defaultInboxRect(): Rect {
@@ -72,6 +90,7 @@ export function emptyAppData(): AppData {
       groupRects: {},
       folderRects: { [INBOX_FOLDER_KEY]: defaultInboxRect() },
     },
+    preferences: {},
   };
 }
 

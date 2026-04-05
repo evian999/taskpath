@@ -15,6 +15,8 @@ html[data-theme="dark"] {
   --flow-edge: rgba(56, 189, 248, 0.55);
   --flow-label: #a1a1aa;
   --flow-label-bg: rgba(12, 12, 14, 0.85);
+  /* 未完成 checkbox 内部：中性灰，边框由优先级色单独控制 */
+  --checkbox-unchecked-fill: rgba(39, 39, 42, 0.85);
 }
 
 html[data-theme="light"] {
@@ -32,6 +34,7 @@ html[data-theme="light"] {
   --flow-edge: rgba(2, 132, 199, 0.5);
   --flow-label: #52525b;
   --flow-label-bg: rgba(255, 255, 255, 0.95);
+  --checkbox-unchecked-fill: #e4e4e7;
 }
 
 @theme inline {

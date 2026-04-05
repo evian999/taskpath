@@ -1,4 +1,11 @@
-import type { AppData, Folder, LayoutState, Rect, Tag } from "./types";
+import type {
+  AppData,
+  Folder,
+  LayoutState,
+  Rect,
+  Tag,
+  TaskPriority,
+} from "./types";
 import {
   INBOX_FOLDER_KEY,
   defaultInboxRect,
@@ -20,6 +27,11 @@ function isRect(v: unknown): v is { x: number; y: number; w: number; h: number }
     typeof o.w === "number" &&
     typeof o.h === "number"
   );
+}
+
+function parseTaskPriority(v: unknown): TaskPriority | undefined {
+  if (v !== "high" && v !== "medium" && v !== "low") return undefined;
+  return v;
 }
 
 function ensureFolderRects(
@@ -88,6 +100,7 @@ export function parseAppData(raw: unknown): AppData {
     }
     let folderId: string | undefined;
     if (typeof x.folderId === "string") folderId = x.folderId;
+    const priority = parseTaskPriority(x.priority);
     out.tasks.push({
       id: x.id,
       title: x.title,
@@ -96,6 +109,7 @@ export function parseAppData(raw: unknown): AppData {
       ...(typeof x.result === "string" ? { result: x.result } : {}),
       ...(folderId ? { folderId } : {}),
       ...(tagIds?.length ? { tagIds } : {}),
+      ...(priority ? { priority } : {}),
     });
   }
 
@@ -147,6 +161,21 @@ export function parseAppData(raw: unknown): AppData {
     }
   }
   out.layout.folderRects = ensureFolderRects(fr, folders);
+
+  const prefRoot = o.preferences;
+  if (prefRoot && typeof prefRoot === "object") {
+    const pr = prefRoot as Record<string, unknown>;
+    const th = pr.taskHttpApi;
+    if (th && typeof th === "object") {
+      const x = th as Record<string, unknown>;
+      const enabled = x.enabled === true;
+      const token = typeof x.token === "string" ? x.token : "";
+      out.preferences = {
+        ...out.preferences,
+        taskHttpApi: { enabled, token },
+      };
+    }
+  }
 
   return out;
 }

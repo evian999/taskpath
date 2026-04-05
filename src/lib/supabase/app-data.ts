@@ -11,6 +11,7 @@ import type {
 } from "@/lib/types";
 import { parseAppData } from "@/lib/validate";
 import { getSupabaseAdmin } from "./admin";
+import { saveTaskHttpPrefsToSupabase } from "./task-http-prefs";
 
 type FolderRow = {
   id: string;
@@ -27,6 +28,7 @@ type TaskRow = {
   completed_at: string | null;
   result: string | null;
   folder_id: string | null;
+  priority: string | null;
 };
 type TaskTagRow = { task_id: string; tag_id: string };
 type GroupRow = { id: string; user_id: string; name: string };
@@ -75,7 +77,7 @@ export async function loadAppDataFromSupabase(
 
   const { data: taskRows, error: e3 } = await sb
     .from("tasks")
-    .select("id,user_id,title,created_at,completed_at,result,folder_id")
+    .select("id,user_id,title,created_at,completed_at,result,folder_id,priority")
     .eq("user_id", userId);
   if (e3) throw e3;
 
@@ -99,6 +101,9 @@ export async function loadAppDataFromSupabase(
 
   const tasks: Task[] = ((taskRows as TaskRow[]) ?? []).map((r) => {
     const tagIds = tagByTask.get(r.id);
+    const pr = r.priority?.trim();
+    const priority =
+      pr === "high" || pr === "medium" || pr === "low" ? pr : undefined;
     return {
       id: r.id,
       title: r.title,
@@ -107,6 +112,7 @@ export async function loadAppDataFromSupabase(
       ...(r.result ? { result: r.result } : {}),
       ...(r.folder_id ? { folderId: r.folder_id } : {}),
       ...(tagIds?.length ? { tagIds } : {}),
+      ...(priority ? { priority } : {}),
     };
   });
 
@@ -239,4 +245,13 @@ export async function saveAppDataToSupabase(
   });
 
   if (error) throw error;
+
+  try {
+    await saveTaskHttpPrefsToSupabase(userId, data.preferences?.taskHttpApi);
+  } catch (e) {
+    console.error(
+      "[saveAppDataToSupabase] task http prefs failed（若未执行 002 迁移可忽略）:",
+      e,
+    );
+  }
 }

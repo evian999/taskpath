@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import type { NextStepInput, Task } from "@/lib/types";
 import { useAppStore } from "@/lib/store";
+import { TagHashTextInput } from "@/components/TagHashTextInput";
 
 type Props = {
   task: Task | null;
@@ -11,6 +12,7 @@ type Props = {
 
 export function CompleteTaskDialog({ task, onClose }: Props) {
   const tasks = useAppStore((s) => s.tasks);
+  const tags = useAppStore((s) => s.tags);
   const completeTask = useAppStore((s) => s.completeTask);
   const [result, setResult] = useState("");
   const [steps, setSteps] = useState<NextStepInput[]>([
@@ -52,7 +54,7 @@ export function CompleteTaskDialog({ task, onClose }: Props) {
       onClick={onClose}
     >
       <div
-        className="w-full max-w-lg rounded-xl border border-[var(--panel-border)] bg-[var(--panel-bg)] p-5 shadow-2xl shadow-cyan-500/5"
+        className="min-w-0 w-full max-w-lg rounded-xl border border-[var(--panel-border)] bg-[var(--panel-bg)] p-5 shadow-2xl shadow-cyan-500/5"
         onClick={(e) => e.stopPropagation()}
       >
         <h2
@@ -87,42 +89,54 @@ export function CompleteTaskDialog({ task, onClose }: Props) {
               + 添加一行
             </button>
           </div>
+          <p className="mt-1 text-[10px] text-zinc-600">
+            描述新任务时可输入 <code className="text-zinc-500">#标签名</code>{" "}
+            插入标签（与列表输入一致）。
+          </p>
           <ul className="mt-2 space-y-2">
             {steps.map((row, i) => (
               <li
                 key={i}
-                className="flex flex-col gap-2 rounded-lg border border-zinc-800/80 bg-black/20 p-2 sm:flex-row sm:items-center"
+                className="flex min-w-0 flex-col gap-2 rounded-lg border border-zinc-800/80 bg-black/20 p-2 sm:flex-row sm:items-center"
               >
-                <input
+                <TagHashTextInput
+                  suggestAbove
                   className="min-w-0 flex-1 rounded-md border border-zinc-700/60 bg-[var(--bg-deep)] px-2 py-1.5 text-sm text-zinc-200 outline-none focus:border-[var(--accent)]"
-                  placeholder="描述下一步…"
+                  placeholder="描述下一步…（# 选标签）"
                   value={row.text}
-                  onChange={(e) => {
-                    const v = e.target.value;
+                  tags={tags}
+                  onChange={(v) => {
                     setSteps((prev) =>
                       prev.map((p, j) => (j === i ? { ...p, text: v } : p)),
                     );
                   }}
                 />
-                <select
-                  className="rounded-md border border-zinc-700/60 bg-[var(--bg-deep)] px-2 py-1.5 text-xs text-zinc-300 outline-none focus:border-[var(--accent)]"
-                  value={row.linkTaskId ?? ""}
-                  onChange={(e) => {
-                    const v = e.target.value || undefined;
-                    setSteps((prev) =>
-                      prev.map((p, j) =>
-                        j === i ? { ...p, linkTaskId: v } : p,
-                      ),
-                    );
-                  }}
-                >
-                  <option value="">（可选）关联已有任务</option>
-                  {others.map((t) => (
-                    <option key={t.id} value={t.id}>
-                      {t.title}
-                    </option>
-                  ))}
-                </select>
+                <div className="min-w-0 w-full sm:w-auto sm:max-w-[min(100%,12rem)] sm:shrink-0">
+                  <select
+                    className="w-full max-w-full rounded-md border border-zinc-700/60 bg-[var(--bg-deep)] px-2 py-1.5 text-xs text-zinc-300 outline-none focus:border-[var(--accent)]"
+                    title={
+                      row.linkTaskId
+                        ? others.find((t) => t.id === row.linkTaskId)?.title
+                        : undefined
+                    }
+                    value={row.linkTaskId ?? ""}
+                    onChange={(e) => {
+                      const v = e.target.value || undefined;
+                      setSteps((prev) =>
+                        prev.map((p, j) =>
+                          j === i ? { ...p, linkTaskId: v } : p,
+                        ),
+                      );
+                    }}
+                  >
+                    <option value="">（可选）关联已有任务</option>
+                    {others.map((t) => (
+                      <option key={t.id} value={t.id}>
+                        {t.title}
+                      </option>
+                    ))}
+                  </select>
+                </div>
               </li>
             ))}
           </ul>

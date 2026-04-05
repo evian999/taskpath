@@ -1,7 +1,14 @@
 "use client";
 
 import Link from "next/link";
-import { ArrowLeft, Download, FileJson, Upload } from "lucide-react";
+import {
+  ArrowLeft,
+  Copy,
+  Download,
+  FileJson,
+  RefreshCw,
+  Upload,
+} from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { AppData } from "@/lib/types";
 import { useAppStore } from "@/lib/store";
@@ -16,6 +23,7 @@ function buildExportPayload(s: {
   folders: AppData["folders"];
   tags: AppData["tags"];
   layout: AppData["layout"];
+  preferences: AppData["preferences"];
 }) {
   return {
     _algoTodoBackup: 1,
@@ -26,6 +34,9 @@ function buildExportPayload(s: {
     edges: s.edges,
     groups: s.groups,
     layout: s.layout,
+    ...(s.preferences && Object.keys(s.preferences).length > 0
+      ? { preferences: s.preferences }
+      : {}),
   };
 }
 
@@ -39,6 +50,11 @@ export function SettingsClient() {
   const folders = useAppStore((s) => s.folders);
   const tags = useAppStore((s) => s.tags);
   const layout = useAppStore((s) => s.layout);
+  const preferences = useAppStore((s) => s.preferences);
+  const setTaskHttpApiEnabled = useAppStore((s) => s.setTaskHttpApiEnabled);
+  const regenerateTaskHttpApiToken = useAppStore(
+    (s) => s.regenerateTaskHttpApiToken,
+  );
   const replaceAppData = useAppStore((s) => s.replaceAppData);
 
   useEffect(() => {
@@ -49,7 +65,17 @@ export function SettingsClient() {
   const [parseError, setParseError] = useState<string | null>(null);
   const [preview, setPreview] = useState<ParsedPreview | null>(null);
   const [importDone, setImportDone] = useState<string | null>(null);
+  const [copyHint, setCopyHint] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+
+  const taskHttp = preferences?.taskHttpApi;
+  const taskHttpEnabled = taskHttp?.enabled === true;
+  const taskHttpToken = taskHttp?.token ?? "";
+
+  const exampleUrl =
+    typeof window !== "undefined"
+      ? `${window.location.origin}/api/tasks-http?token=${taskHttpToken || "<token>"}`
+      : "/api/tasks-http?token=<token>";
 
   const onDownload = useCallback(() => {
     const payload = buildExportPayload({
@@ -59,6 +85,7 @@ export function SettingsClient() {
       folders,
       tags,
       layout,
+      preferences,
     });
     const blob = new Blob([JSON.stringify(payload, null, 2)], {
       type: "application/json;charset=utf-8",
@@ -70,7 +97,7 @@ export function SettingsClient() {
     a.download = `algo-todo-backup-${stamp}.json`;
     a.click();
     URL.revokeObjectURL(a.href);
-  }, [tasks, edges, groups, folders, tags, layout]);
+  }, [tasks, edges, groups, folders, tags, layout, preferences]);
 
   const processFile = useCallback((file: File) => {
     setParseError(null);
@@ -158,6 +185,106 @@ export function SettingsClient() {
           将文件夹、标签、任务及画布连线、分组与布局导出为 JSON；也可拖入此前导出的文件恢复数据（会覆盖当前账号下的全部待办数据）。
         </p>
       </div>
+
+      <section className="rounded-2xl border border-[var(--panel-border)] bg-[var(--panel-bg)]/90 p-6 shadow-xl backdrop-blur-xl">
+        <div className="mb-3 text-sm font-medium text-zinc-300">
+          任务 HTTP API（只读）
+        </div>
+        <p className="mb-4 text-xs text-zinc-500">
+          开启后可通过 URL 携带 token 或{" "}
+          <code className="rounded bg-black/30 px-1 text-[10px]">
+            Authorization: Bearer
+          </code>{" "}
+          拉取当前账号下的任务 JSON（含{" "}
+          <code className="text-[10px]">folders</code>、
+          <code className="text-[10px]">tags</code>，且每条任务带{" "}
+          <code className="text-[10px]">folderName</code>、
+          <code className="text-[10px]">tagNames</code>
+          ）。关闭后即使泄露 token 也无法访问。请勿把 token 提交到公开仓库。
+          使用 Supabase 部署时需在数据库执行{" "}
+          <code className="text-[10px] text-zinc-400">002_user_preferences_task_api.sql</code>
+          ，否则 token 无法用于反查用户。
+        </p>
+        <label className="mb-4 flex cursor-pointer items-center gap-2 text-sm text-zinc-300">
+          <input
+            type="checkbox"
+            className="h-4 w-4 accent-[var(--accent)]"
+            checked={taskHttpEnabled}
+            onChange={(e) => setTaskHttpApiEnabled(e.target.checked)}
+          />
+          开启任务 HTTP API
+        </label>
+        {taskHttpEnabled ? (
+          <div className="space-y-3 rounded-xl border border-zinc-700/50 bg-black/25 p-4">
+            <div>
+              <p className="mb-1 text-[10px] font-medium uppercase tracking-wide text-zinc-500">
+                密钥 token
+              </p>
+              <code className="block break-all rounded-md bg-black/40 px-2 py-2 text-[11px] text-zinc-400">
+                {taskHttpToken || "（保存后生成）"}
+              </code>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                disabled={!taskHttpToken}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-zinc-600 px-3 py-1.5 text-xs text-zinc-300 hover:bg-white/5 disabled:cursor-not-allowed disabled:opacity-40"
+                onClick={async () => {
+                  if (!taskHttpToken) return;
+                  await navigator.clipboard.writeText(taskHttpToken);
+                  setCopyHint("已复制 token");
+                  setTimeout(() => setCopyHint(null), 2000);
+                }}
+              >
+                <Copy className="h-3.5 w-3.5" />
+                复制 token
+              </button>
+              <button
+                type="button"
+                disabled={!taskHttpToken}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-zinc-600 px-3 py-1.5 text-xs text-zinc-300 hover:bg-white/5 disabled:cursor-not-allowed disabled:opacity-40"
+                onClick={async () => {
+                  await navigator.clipboard.writeText(exampleUrl);
+                  setCopyHint("已复制示例 URL");
+                  setTimeout(() => setCopyHint(null), 2000);
+                }}
+              >
+                <Copy className="h-3.5 w-3.5" />
+                复制请求 URL
+              </button>
+              <button
+                type="button"
+                className="inline-flex items-center gap-1.5 rounded-lg border border-amber-700/50 px-3 py-1.5 text-xs text-amber-200/90 hover:bg-amber-950/30"
+                onClick={() => {
+                  if (
+                    typeof window !== "undefined" &&
+                    !window.confirm("轮换后旧 token 立即失效，确定？")
+                  )
+                    return;
+                  regenerateTaskHttpApiToken();
+                }}
+              >
+                <RefreshCw className="h-3.5 w-3.5" />
+                轮换 token
+              </button>
+            </div>
+            {copyHint ? (
+              <p className="text-xs text-emerald-400/90">{copyHint}</p>
+            ) : null}
+            <p className="text-[10px] leading-relaxed text-zinc-600">
+              示例：<code className="break-all text-zinc-500">{exampleUrl}</code>
+            </p>
+            <p className="text-[10px] text-zinc-600">
+              curl：{" "}
+              <code className="break-all text-zinc-500">
+                curl -H &quot;Authorization: Bearer {taskHttpToken || "TOKEN"}&quot;{" "}
+                {typeof window !== "undefined" ? window.location.origin : ""}
+                /api/tasks-http
+              </code>
+            </p>
+          </div>
+        ) : null}
+      </section>
 
       <section className="rounded-2xl border border-[var(--panel-border)] bg-[var(--panel-bg)]/90 p-6 shadow-xl backdrop-blur-xl">
         <div className="mb-3 flex items-center gap-2 text-sm font-medium text-zinc-300">

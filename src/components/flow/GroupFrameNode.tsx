@@ -11,12 +11,13 @@ export function GroupFrameNode({ data, selected }: NodeProps) {
   const removeGroup = useAppStore((s) => s.removeGroup);
 
   return (
-    <div
-      className={`group-frame h-full w-full rounded-xl border border-dashed bg-[var(--group-bg)] backdrop-blur-[2px] ${
-        selected ? "border-[var(--accent)]" : "border-zinc-600/60"
-      }`}
-    >
-      <div className="flex items-center gap-2 border-b border-zinc-700/50 px-2 py-1.5">
+    <div className="pointer-events-none relative h-full w-full">
+      <div
+        className={`pointer-events-none absolute inset-0 rounded-xl border border-dashed bg-[var(--group-bg)] backdrop-blur-[2px] ${
+          selected ? "border-[var(--accent)]" : "border-zinc-600/60"
+        }`}
+      />
+      <div className="group-frame-drag pointer-events-auto relative z-[1] flex cursor-grab items-center gap-2 border-b border-zinc-700/50 px-2 py-1.5 active:cursor-grabbing">
         <input
           className="nodrag nopan min-w-0 flex-1 bg-transparent text-xs font-medium text-zinc-300 outline-none placeholder:text-zinc-600"
           value={d.name}

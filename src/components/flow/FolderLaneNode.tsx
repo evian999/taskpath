@@ -19,19 +19,19 @@ export function FolderLaneNode({ data, selected }: NodeProps) {
     <>
       <NodeResizer
         isVisible={selected}
-        minWidth={200}
-        minHeight={180}
+        minWidth={160}
+        minHeight={160}
         maxWidth={5600}
         maxHeight={5600}
         color="var(--accent)"
-        lineClassName="!border-[var(--accent)]/45"
-        handleClassName="!h-2.5 !w-2.5 !rounded-sm !border !border-[var(--accent)]/80 !bg-[var(--bg-deep)]"
+        lineClassName="nopan !border-[var(--accent)]/45"
+        handleClassName="nopan !h-2.5 !w-2.5 !rounded-sm !border !border-[var(--accent)]/80 !bg-[var(--bg-deep)]"
         onResizeEnd={() => {
           queueMicrotask(() => syncCanvasLayout(getNodes()));
         }}
       />
       <div
-        className={`folder-lane relative h-full w-full rounded-xl border border-zinc-700/40 bg-black/20 backdrop-blur-[1px] ${
+        className={`folder-lane pointer-events-none relative h-full w-full rounded-xl border border-zinc-700/40 bg-black/20 backdrop-blur-[1px] ${
           selected ? "ring-1 ring-[var(--accent)]" : ""
         }`}
         style={{
@@ -40,7 +40,7 @@ export function FolderLaneNode({ data, selected }: NodeProps) {
           boxShadow: `inset 0 0 40px ${accent}12`,
         }}
       >
-        <div className="pointer-events-none select-none px-2 py-1.5">
+        <div className="folder-lane-drag pointer-events-auto cursor-grab select-none px-2 py-1.5 active:cursor-grabbing">
           <span className="text-[11px] font-semibold uppercase tracking-wider text-zinc-500">
             {d.name}
           </span>

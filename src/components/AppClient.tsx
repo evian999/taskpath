@@ -35,6 +35,7 @@ export function AppClient() {
     const onKey = (e: KeyboardEvent) => {
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement)
         return;
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
       if (e.key === "l" || e.key === "L") setMode("list");
       if (e.key === "c" || e.key === "C") setMode("canvas");
     };
