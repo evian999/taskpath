@@ -6,6 +6,9 @@ import { isRedisConfigured } from "@/lib/redis-store";
 import { isSupabaseConfigured } from "@/lib/supabase/admin";
 import { findUserIdByTaskHttpTokenSupabase } from "@/lib/supabase/task-http-prefs";
 
+/** Upstash `scan` 标准返回；显式标注可避免 TS 在游标循环里循环推断为 implicit any */
+type RedisScanPage = [string, string[]];
+
 function redisClient(): Redis | null {
   const url = process.env.UPSTASH_REDIS_REST_URL;
   const token = process.env.UPSTASH_REDIS_REST_TOKEN;
@@ -18,11 +21,11 @@ async function findUserIdByTokenRedisScan(token: string): Promise<string | null>
   if (!r) return null;
   let cursor: string | number = 0;
   for (;;) {
-    const scanResult = await r.scan(cursor, {
+    const scanResult: RedisScanPage = await r.scan(cursor, {
       match: "algo-todo:v1:*",
       count: 100,
     });
-    const nextCursor: string | number = scanResult[0];
+    const nextCursor = scanResult[0];
     const keys = scanResult[1];
     for (const key of keys) {
       const raw = await r.get(key);
@@ -40,7 +43,7 @@ async function findUserIdByTokenRedisScan(token: string): Promise<string | null>
         return userId || null;
       }
     }
-    if (nextCursor === "0" || nextCursor === 0) break;
+    if (nextCursor === "0") break;
     cursor = nextCursor;
   }
   return null;
