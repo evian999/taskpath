@@ -1,5 +1,6 @@
 import { readdir, readFile } from "fs/promises";
 import { join } from "path";
+import { userStoreDir } from "@/lib/user-store-path";
 import { Redis } from "@upstash/redis";
 import { parseAppData } from "@/lib/validate";
 import { isRedisConfigured } from "@/lib/redis-store";
@@ -58,25 +59,38 @@ async function findUserIdByTokenRedisScan(token: string): Promise<string | null>
 }
 
 async function findUserIdByTokenFiles(token: string): Promise<string | null> {
-  const dir = join(process.cwd(), "data", "stores");
-  try {
-    const files = await readdir(dir);
-    for (const f of files) {
-      if (!f.endsWith(".json")) continue;
-      const userId = f.slice(0, -".json".length);
-      try {
-        const buf = await readFile(join(dir, f), "utf-8");
-        const data = parseAppData(JSON.parse(buf));
-        const th = data.preferences?.taskHttpApi;
-        if (th?.enabled && th.token === token) return userId;
-      } catch {
-        continue;
+  const dirs =
+    process.env.NODE_ENV === "development"
+      ? [
+          userStoreDir(),
+          dirnameOfLegacyStoreDir(),
+        ]
+      : [userStoreDir()];
+
+  for (const dir of dirs) {
+    try {
+      const files = await readdir(dir);
+      for (const f of files) {
+        if (!f.endsWith(".json") || f === "_users.json") continue;
+        const userId = f.slice(0, -".json".length);
+        try {
+          const buf = await readFile(join(dir, f), "utf-8");
+          const data = parseAppData(JSON.parse(buf));
+          const th = data.preferences?.taskHttpApi;
+          if (th?.enabled && th.token === token) return userId;
+        } catch {
+          continue;
+        }
       }
+    } catch {
+      continue;
     }
-  } catch {
-    return null;
   }
   return null;
+}
+
+function dirnameOfLegacyStoreDir(): string {
+  return join(process.cwd(), "data", "stores");
 }
 
 /**

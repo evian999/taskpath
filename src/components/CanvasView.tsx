@@ -19,11 +19,13 @@ import {
 import "@xyflow/react/dist/style.css";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  ArrowUpToLine,
   ChevronLeft,
   ChevronRight,
   CircleHelp,
   Download,
   Hand,
+  ListChecks,
   MousePointer2,
   ScanSearch,
   SquareStack,
@@ -34,7 +36,10 @@ import { GroupFrameNode } from "@/components/flow/GroupFrameNode";
 import { HighlightSmoothStepEdge } from "@/components/flow/HighlightSmoothStepEdge";
 import { TaskNode } from "@/components/flow/TaskNode";
 import { folderKeyContainingFlowPoint } from "@/lib/canvas-folder-hit";
-import { taskHitCenterFlow } from "@/lib/canvas-node-absolute";
+import {
+  clampTaskNodesBelowFolderTitle,
+  taskHitCenterFlow,
+} from "@/lib/canvas-node-absolute";
 import { separateOverlappingTaskNodes } from "@/lib/canvas-overlap";
 import {
   buildFlowEdges,
@@ -50,6 +55,7 @@ import {
 import {
   ARCHIVE_FOLDER_KEY,
   INBOX_FOLDER_KEY,
+  RECENT_DELETED_FOLDER_KEY,
   type NavFolderId,
   taskFolderKey,
 } from "@/lib/types";
@@ -67,6 +73,7 @@ const edgeTypes = {
 
 function CanvasInner() {
   const tasks = useAppStore((s) => s.tasks);
+  const tags = useAppStore((s) => s.tags);
   const groups = useAppStore((s) => s.groups);
   const layout = useAppStore((s) => s.layout);
   const folders = useAppStore((s) => s.folders);
@@ -75,6 +82,7 @@ function CanvasInner() {
   const storeEdges = useAppStore((s) => s.edges);
   const addEdgeToStore = useAppStore((s) => s.addEdge);
   const removeEdge = useAppStore((s) => s.removeEdge);
+  const updateEdge = useAppStore((s) => s.updateEdge);
   const addTask = useAppStore((s) => s.addTask);
   const syncCanvasLayout = useAppStore((s) => s.syncCanvasLayout);
   const createGroupFromTaskIds = useAppStore((s) => s.createGroupFromTaskIds);
@@ -85,16 +93,28 @@ function CanvasInner() {
   );
   const storeApi = useStoreApi();
   const [helpOpen, setHelpOpen] = useState(false);
-  /** 画布顶部工具栏展开/收起（默认收起以留出画布） */
-  const [canvasToolbarExpanded, setCanvasToolbarExpanded] = useState(false);
+  const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null);
+  const [edgeLabelDraft, setEdgeLabelDraft] = useState("");
+  /** 默认展开，与「将画布工具栏改为默认展开」一致 */
+  const [canvasToolbarExpanded, setCanvasToolbarExpanded] = useState(true);
+  /** 显示当前导航下全部任务（含已无未完成下游的已完成） */
+  const [showCompletedOnCanvas, setShowCompletedOnCanvas] = useState(false);
   /** 重置「排列」下拉的受控 trick */
   const [arrangeMenuKey, setArrangeMenuKey] = useState(0);
-  /** 选择：左键拖可选框/点节点；抓手：左键拖动画布 */
+  /** 选择：空白处左键拖框选（空格+左键或中键/右键平移）；抓手：左键拖平移 */
   const [canvasTool, setCanvasTool] = useState<"select" | "hand">("select");
 
+  const canvasVisibility = useMemo(
+    () =>
+      showCompletedOnCanvas
+        ? ({ showAllCompletedInNav: true } as const)
+        : undefined,
+    [showCompletedOnCanvas],
+  );
+
   const visibleIds = useMemo(
-    () => visibleTaskIdSet(tasks, navFolderId, storeEdges),
-    [tasks, navFolderId, storeEdges],
+    () => visibleTaskIdSet(tasks, navFolderId, storeEdges, canvasVisibility),
+    [tasks, navFolderId, storeEdges, canvasVisibility],
   );
 
   const filteredStoreEdges = useMemo(
@@ -104,12 +124,20 @@ function CanvasInner() {
 
   const builtNodes = useMemo(
     () =>
-      buildFlowNodes(tasks, groups, layout, folders, navFolderId, storeEdges),
-    [tasks, groups, layout, folders, navFolderId, storeEdges],
+      buildFlowNodes(
+        tasks,
+        groups,
+        layout,
+        folders,
+        navFolderId,
+        storeEdges,
+        canvasVisibility,
+      ),
+    [tasks, groups, layout, folders, navFolderId, storeEdges, canvasVisibility],
   );
   const builtEdges = useMemo(
-    () => buildFlowEdges(filteredStoreEdges),
-    [filteredStoreEdges],
+    () => buildFlowEdges(filteredStoreEdges, tasks, tags),
+    [filteredStoreEdges, tasks, tags],
   );
 
   const [nodes, setNodes, onNodesChange] = useNodesState(builtNodes);
@@ -124,19 +152,59 @@ function CanvasInner() {
   }, [builtEdges, setEdges]);
 
   useEffect(() => {
+    if (!selectedEdgeId) {
+      setEdgeLabelDraft("");
+      return;
+    }
+    const e = storeEdges.find((x) => x.id === selectedEdgeId);
+    setEdgeLabelDraft(e?.label ?? "");
+  }, [selectedEdgeId, storeEdges]);
+
+  useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return;
       const t = e.target;
       if (t instanceof HTMLInputElement || t instanceof HTMLTextAreaElement)
         return;
-      const { connection, cancelConnection } = storeApi.getState();
+      const st = storeApi.getState();
+      const { connection, cancelConnection } = st;
       if (connection.inProgress) {
         e.preventDefault();
         cancelConnection();
+        return;
+      }
+      if (st.userSelectionActive || st.userSelectionRect) {
+        e.preventDefault();
+        storeApi.setState({
+          userSelectionActive: false,
+          userSelectionRect: null,
+        });
       }
     };
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
+  }, [storeApi]);
+
+  /** 框选拖一半失焦/切窗时 xyflow 可能卡住，清掉后中键/平移会恢复 */
+  useEffect(() => {
+    const clearStuckSelection = () => {
+      const st = storeApi.getState();
+      if (st.userSelectionActive || st.userSelectionRect) {
+        storeApi.setState({
+          userSelectionActive: false,
+          userSelectionRect: null,
+        });
+      }
+    };
+    const onVis = () => {
+      if (document.visibilityState === "hidden") clearStuckSelection();
+    };
+    window.addEventListener("blur", clearStuckSelection);
+    document.addEventListener("visibilitychange", onVis);
+    return () => {
+      window.removeEventListener("blur", clearStuckSelection);
+      document.removeEventListener("visibilitychange", onVis);
+    };
   }, [storeApi]);
 
   useEffect(() => {
@@ -185,7 +253,21 @@ function CanvasInner() {
     [addEdgeToStore],
   );
 
-  const { screenToFlowPosition, getNodes, fitView } = useReactFlow();
+  const { screenToFlowPosition, getNodes, fitView, setViewport, getViewport } =
+    useReactFlow();
+
+  const onCanvasScrollTop = useCallback(() => {
+    const z = getViewport().zoom;
+    void setViewport({ x: 0, y: 0, zoom: z }, { duration: 280 });
+  }, [getViewport, setViewport]);
+
+  const onSelectionChange = useCallback(
+    ({ edges: selEdges }: { edges: { id: string }[] }) => {
+      if (selEdges.length === 1) setSelectedEdgeId(selEdges[0]!.id);
+      else setSelectedEdgeId(null);
+    },
+    [],
+  );
 
   const onExportFlexOffJson = useCallback(() => {
     const { tasks, edges, groups, layout, folders, navFolderId } =
@@ -278,7 +360,9 @@ function CanvasInner() {
 
   const onNodeDragStop = useCallback(
     (_: React.MouseEvent, _node: Node) => {
-      const resolved = separateOverlappingTaskNodes(getNodes());
+      const resolved = clampTaskNodesBelowFolderTitle(
+        separateOverlappingTaskNodes(getNodes()),
+      );
       setNodes(resolved);
       syncCanvasLayout(resolved);
 
@@ -342,10 +426,17 @@ function CanvasInner() {
         y = (event as MouseEvent).clientY;
       }
       const p = screenToFlowPosition({ x, y });
-      const { layout: lay } = useAppStore.getState();
+      const { layout: lay, navFolderId: nav } = useAppStore.getState();
       const cx = p.x + TASK_NODE_BOUNDS_W / 2;
       const cy = p.y + TASK_NODE_BOUNDS_H / 2;
-      const hitKey = folderKeyContainingFlowPoint(cx, cy, lay.folderRects);
+      let hitKey = folderKeyContainingFlowPoint(cx, cy, lay.folderRects);
+      if (
+        nav !== "all" &&
+        nav !== INBOX_FOLDER_KEY &&
+        hitKey === INBOX_FOLDER_KEY
+      ) {
+        hitKey = nav;
+      }
       const created = addTask("新任务", p, {
         folderId: hitKey === INBOX_FOLDER_KEY ? null : hitKey,
       });
@@ -397,9 +488,9 @@ function CanvasInner() {
     setNavFolderId(v as NavFolderId);
   };
 
-  /** 与 React Flow 一致：数组形式避免 boolean 与 selection 逻辑边界问题；抓手模式需含 0 才左键拖动画布 */
+  /** 抓手：左键拖=平移。选择：仅画布空白左键拖=框选；平移用中键/右键或按住空格再左键（与 xyflow 一致）。 */
   const panOnDrag = useMemo(
-    () => (canvasTool === "hand" ? [0, 1, 2] : [1, 2]),
+    () => (canvasTool === "hand" ? true : [1, 2]),
     [canvasTool],
   );
   const selectionOnDrag = canvasTool === "select";
@@ -426,6 +517,7 @@ function CanvasInner() {
               </option>
             ))}
             <option value={ARCHIVE_FOLDER_KEY}>归档</option>
+            <option value={RECENT_DELETED_FOLDER_KEY}>最近删除的任务</option>
           </select>
           <button
             type="button"
@@ -435,10 +527,33 @@ function CanvasInner() {
           >
             <Download className="h-3.5 w-3.5" />
           </button>
+          <button
+            type="button"
+            title={
+              showCompletedOnCanvas
+                ? "仅显示与未完成下游相关的已完成（默认）"
+                : "显示本文件夹内全部任务（含已无后续步骤的已完成）"
+            }
+            className={`md-btn-tonal md-focus-ring inline-flex shrink-0 items-center justify-center px-2 py-1.5 hover:border-md-primary/50 hover:text-md-on-surface ${
+              showCompletedOnCanvas ? "border-md-primary/50 text-md-primary" : ""
+            }`}
+            onClick={() => setShowCompletedOnCanvas((v) => !v)}
+            aria-pressed={showCompletedOnCanvas}
+          >
+            <ListChecks className="h-3.5 w-3.5" />
+          </button>
+          <button
+            type="button"
+            title="视口回到画布坐标原点（左上）"
+            className="md-btn-tonal md-focus-ring inline-flex shrink-0 items-center justify-center px-2 py-1.5 hover:border-md-primary/50 hover:text-md-on-surface"
+            onClick={onCanvasScrollTop}
+          >
+            <ArrowUpToLine className="h-3.5 w-3.5" />
+          </button>
           <div className="md-segmented shrink-0 shadow-lg">
             <button
               type="button"
-              title="选择模式（默认）：可拖任务；空白处左键拖框选；中键/右键拖动画布"
+              title="选择模式：可拖任务；仅在画布空白处左键斜拖=框选；中键/右键拖或按住空格再左键拖=平移"
               className={`md-segment px-2 py-1.5 ${canvasTool === "select" ? "md-segment--active" : "md-segment--inactive"}`}
               onClick={() => setCanvasTool("select")}
             >
@@ -446,7 +561,7 @@ function CanvasInner() {
             </button>
             <button
               type="button"
-              title="抓手模式：左键拖动画布（任务不可拖动）"
+              title="抓手模式：左键拖=平移画布；任务不可拖动"
               className={`md-segment px-2 py-1.5 ${canvasTool === "hand" ? "md-segment--active" : "md-segment--inactive"}`}
               onClick={() => setCanvasTool("hand")}
             >
@@ -532,11 +647,34 @@ function CanvasInner() {
         </div>
       </div>
       <CanvasHelpDialog open={helpOpen} onClose={() => setHelpOpen(false)} />
+      {selectedEdgeId ? (
+        <div className="absolute bottom-14 left-3 z-10 flex max-w-[min(100%-1.5rem,20rem)] items-center gap-2 rounded-lg border border-[var(--md-sys-color-outline)] bg-[var(--md-sys-color-surface-container)] px-2 py-1.5 shadow-lg">
+          <span className="shrink-0 text-[10px] text-md-on-surface-variant">
+            连线说明
+          </span>
+          <input
+            className="md-field md-focus-ring min-w-0 flex-1 px-2 py-1 md-type-body-s"
+            value={edgeLabelDraft}
+            onChange={(e) => setEdgeLabelDraft(e.target.value)}
+            onBlur={() => {
+              const v = edgeLabelDraft.trim();
+              updateEdge(selectedEdgeId, {
+                label: v ? v : undefined,
+              });
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+            }}
+            placeholder="边上显示的文字"
+          />
+        </div>
+      ) : null}
       <ReactFlow
         nodes={nodes}
         edges={edges}
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
+        onSelectionChange={onSelectionChange}
         onConnect={onConnect}
         onConnectEnd={onConnectEnd}
         onNodeDragStop={onNodeDragStop}
@@ -553,8 +691,8 @@ function CanvasInner() {
         proOptions={{ hideAttribution: true }}
         className={
           canvasTool === "hand"
-            ? "!bg-transparent [&_.react-flow__pane]:!cursor-grab [&_.react-flow__pane:active]:!cursor-grabbing"
-            : "!bg-transparent [&_.react-flow__pane]:!cursor-default"
+            ? "!bg-transparent canvas-tool--hand [&_.react-flow__pane]:!cursor-grab [&_.react-flow__pane:active]:!cursor-grabbing"
+            : "!bg-transparent canvas-tool--select"
         }
       >
         <Background

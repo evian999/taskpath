@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import type { NextStepInput, Task } from "@/lib/types";
+import { RECENT_DELETED_FOLDER_KEY, taskFolderKey } from "@/lib/types";
 import { useAppStore } from "@/lib/store";
 import { TagHashTextInput } from "@/components/TagHashTextInput";
 
@@ -15,14 +16,12 @@ export function CompleteTaskDialog({ task, onClose }: Props) {
   const tags = useAppStore((s) => s.tags);
   const completeTask = useAppStore((s) => s.completeTask);
   const [result, setResult] = useState("");
-  const [steps, setSteps] = useState<NextStepInput[]>([
-    { text: "", linkTaskId: undefined },
-  ]);
+  const [steps, setSteps] = useState<NextStepInput[]>([]);
 
   useEffect(() => {
     if (task) {
       setResult(task.result ?? "");
-      setSteps([{ text: "", linkTaskId: undefined }]);
+      setSteps([]);
     }
   }, [task]);
 
@@ -37,7 +36,13 @@ export function CompleteTaskDialog({ task, onClose }: Props) {
 
   if (!task) return null;
 
-  const others = tasks.filter((t) => t.id !== task.id);
+  const taskFk = taskFolderKey(task);
+  const others = tasks.filter(
+    (t) =>
+      t.id !== task.id &&
+      taskFolderKey(t) === taskFk &&
+      t.folderId !== RECENT_DELETED_FOLDER_KEY,
+  );
 
   const submit = () => {
     const filtered = steps.filter((s) => s.text.trim() || s.linkTaskId);
@@ -90,8 +95,13 @@ export function CompleteTaskDialog({ task, onClose }: Props) {
           <p className="mt-1 text-[0.625rem] leading-4 text-md-on-surface-variant">
             描述新任务时可输入{" "}
             <code className="text-md-on-surface-variant/90">#标签名</code>{" "}
-            插入标签（与列表输入一致）。
+            插入标签（与列表输入一致）。关联已有任务仅列出与当前任务同一文件夹内的项。
           </p>
+          {steps.length === 0 ? (
+            <p className="mt-2 md-type-body-s text-md-on-surface-variant">
+              无需后续步骤时可留空；需要时再点「+ 添加一行」。
+            </p>
+          ) : null}
           <ul className="mt-2 space-y-2">
             {steps.map((row, i) => (
               <li

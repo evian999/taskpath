@@ -51,3 +51,7 @@ next-env.d.ts
 
 .vercel
 .backup
+
+# one-off API dumps (may contain private task titles)
+flex-tasks-fetched.json
+tasks-http-dump.json

@@ -3,6 +3,8 @@
 import { useMemo, useState, type ReactNode } from "react";
 import {
   Archive,
+  ArchiveRestore,
+  AtSign,
   FolderOpen,
   Inbox,
   LayoutGrid,
@@ -12,7 +14,12 @@ import {
   Tag,
   Trash2,
 } from "lucide-react";
-import { ARCHIVE_FOLDER_KEY, INBOX_FOLDER_KEY, type NavFolderId } from "@/lib/types";
+import {
+  ARCHIVE_FOLDER_KEY,
+  INBOX_FOLDER_KEY,
+  RECENT_DELETED_FOLDER_KEY,
+  type NavFolderId,
+} from "@/lib/types";
 import { useAppStore } from "@/lib/store";
 import { resolveTagColor } from "@/lib/tag-draft";
 
@@ -26,8 +33,10 @@ export function ListSidebar({ onRequestCollapse }: ListSidebarProps) {
   const tags = useAppStore((s) => s.tags);
   const navFolderId = useAppStore((s) => s.navFolderId);
   const navTagId = useAppStore((s) => s.navTagId);
+  const navMention = useAppStore((s) => s.navMention);
   const setNavFolderId = useAppStore((s) => s.setNavFolderId);
   const setNavTagId = useAppStore((s) => s.setNavTagId);
+  const setNavMention = useAppStore((s) => s.setNavMention);
   const addFolder = useAppStore((s) => s.addFolder);
   const updateFolder = useAppStore((s) => s.updateFolder);
   const deleteFolder = useAppStore((s) => s.deleteFolder);
@@ -44,37 +53,67 @@ export function ListSidebar({ onRequestCollapse }: ListSidebarProps) {
   const [tagEditName, setTagEditName] = useState("");
   const [tagEditColor, setTagEditColor] = useState("");
 
-  const { allCount, inboxCount, archiveCount, folderCounts, tagCounts } =
-    useMemo(() => {
-    const folderCounts: Record<string, number> = Object.fromEntries(
-      folders.map((f) => [f.id, 0]),
-    );
-    const tagCounts: Record<string, number> = Object.fromEntries(
-      tags.map((t) => [t.id, 0]),
-    );
-    let inboxCount = 0;
-    let archiveCount = 0;
-    let incompleteAll = 0;
-    for (const task of tasks) {
-      if (task.completedAt) continue;
-      incompleteAll += 1;
-      for (const tid of task.tagIds ?? []) {
-        if (tagCounts[tid] !== undefined) tagCounts[tid] += 1;
+  const {
+    allCount,
+    inboxCount,
+    archiveCount,
+    trashCount,
+    folderCounts,
+    tagCounts,
+    mentionSummaries,
+  } = useMemo(() => {
+      const folderCounts: Record<string, number> = Object.fromEntries(
+        folders.map((f) => [f.id, 0]),
+      );
+      const tagCounts: Record<string, number> = Object.fromEntries(
+        tags.map((t) => [t.id, 0]),
+      );
+      const mentionMap = new Map<
+        string,
+        { label: string; count: number }
+      >();
+      let inboxCount = 0;
+      let archiveCount = 0;
+      let incompleteAll = 0;
+      let trashCount = 0;
+      for (const task of tasks) {
+        if (task.folderId === RECENT_DELETED_FOLDER_KEY) {
+          trashCount += 1;
+          continue;
+        }
+        if (task.completedAt) continue;
+        incompleteAll += 1;
+        for (const tid of task.tagIds ?? []) {
+          if (tagCounts[tid] !== undefined) tagCounts[tid] += 1;
+        }
+        for (const m of task.mentions ?? []) {
+          const key = m.toLowerCase();
+          const cur = mentionMap.get(key);
+          if (cur) cur.count += 1;
+          else mentionMap.set(key, { label: m, count: 1 });
+        }
+        if (!task.folderId) inboxCount += 1;
+        else if (task.folderId === ARCHIVE_FOLDER_KEY) archiveCount += 1;
+        else if (folderCounts[task.folderId] !== undefined) {
+          folderCounts[task.folderId] += 1;
+        }
       }
-      if (!task.folderId) inboxCount += 1;
-      else if (task.folderId === ARCHIVE_FOLDER_KEY) archiveCount += 1;
-      else if (folderCounts[task.folderId] !== undefined) {
-        folderCounts[task.folderId] += 1;
-      }
-    }
-    return {
-      allCount: incompleteAll,
-      inboxCount,
-      archiveCount,
-      folderCounts,
-      tagCounts,
-    };
-  }, [tasks, folders, tags]);
+      const mentionSummaries = [...mentionMap.entries()]
+        .map(([key, v]) => ({ key, label: v.label, count: v.count }))
+        .sort(
+          (a, b) =>
+            b.count - a.count || a.label.localeCompare(b.label, "zh-CN"),
+        );
+      return {
+        allCount: incompleteAll,
+        inboxCount,
+        archiveCount,
+        trashCount,
+        folderCounts,
+        tagCounts,
+        mentionSummaries,
+      };
+    }, [tasks, folders, tags]);
 
   const countCol =
     "flex h-full min-h-[2.25rem] w-[2.25rem] shrink-0 items-center justify-end tabular-nums text-[0.625rem] leading-none text-md-on-surface-variant";
@@ -259,6 +298,12 @@ export function ListSidebar({ onRequestCollapse }: ListSidebarProps) {
             <Archive className="h-3.5 w-3.5 shrink-0 opacity-70" />,
             archiveCount,
           )}
+          {navBtn(
+            RECENT_DELETED_FOLDER_KEY,
+            "最近删除的任务",
+            <ArchiveRestore className="h-3.5 w-3.5 shrink-0 opacity-70" />,
+            trashCount,
+          )}
         </nav>
         <div className="mt-2 flex gap-1">
           <input
@@ -287,15 +332,16 @@ export function ListSidebar({ onRequestCollapse }: ListSidebarProps) {
         </div>
       </div>
 
-      <div className="flex flex-1 flex-col overflow-hidden p-3">
-        <p className="md-type-label-s mb-2 flex items-center gap-1.5">
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden p-3">
+        <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
+        <p className="md-type-label-s mb-2 flex shrink-0 items-center gap-1.5">
           <Tag className="h-3 w-3" />
           标签筛选
         </p>
         <button
           type="button"
           onClick={() => setNavTagId(null)}
-          className={`mb-2 md-corner-md px-2 py-1.5 text-left md-type-body-s ${
+          className={`mb-2 shrink-0 md-corner-md px-2 py-1.5 text-left md-type-body-s ${
             navTagId === null
               ? "bg-[var(--md-sys-color-surface-container-highest)] text-md-on-surface"
               : "text-md-on-surface-variant md-state-hover"
@@ -303,7 +349,7 @@ export function ListSidebar({ onRequestCollapse }: ListSidebarProps) {
         >
           不限标签
         </button>
-        <ul className="flex flex-col gap-1 overflow-y-auto">
+        <ul className="flex shrink-0 flex-col gap-1">
           {tags.map((t, tagIdx) => (
             <li key={t.id} className="group flex flex-col gap-1 py-0.5">
               {editingTagId === t.id ? (
@@ -425,7 +471,7 @@ export function ListSidebar({ onRequestCollapse }: ListSidebarProps) {
             </li>
           ))}
         </ul>
-        <div className="mt-2 flex gap-1 border-t border-[var(--md-sys-color-outline)] pt-2">
+        <div className="mt-2 flex shrink-0 gap-1 border-t border-[var(--md-sys-color-outline)] pt-2">
           <input
             className="md-field md-focus-ring min-w-0 flex-1 px-2 py-1.5 md-type-body-s"
             placeholder="新标签…"
@@ -448,6 +494,55 @@ export function ListSidebar({ onRequestCollapse }: ListSidebarProps) {
           >
             <Plus className="h-4 w-4" />
           </button>
+        </div>
+
+        <div className="mt-4 shrink-0 border-t border-[var(--md-sys-color-outline)] pt-3">
+        <p className="md-type-label-s mb-2 flex items-center gap-1.5">
+          <AtSign className="h-3 w-3" />
+          涉及的人
+        </p>
+        <button
+          type="button"
+          onClick={() => setNavMention(null)}
+          className={`mb-2 md-corner-md px-2 py-1.5 text-left md-type-body-s ${
+            navMention === null
+              ? "bg-[var(--md-sys-color-surface-container-highest)] text-md-on-surface"
+              : "text-md-on-surface-variant md-state-hover"
+          }`}
+        >
+          不限 @提及
+        </button>
+        <ul className="flex flex-col gap-1 pb-1">
+          {mentionSummaries.map((m) => (
+            <li key={m.key}>
+              <button
+                type="button"
+                onClick={() =>
+                  setNavMention(navMention === m.key ? null : m.key)
+                }
+                className={`grid w-full grid-cols-[minmax(0,1fr)_2.25rem] items-center gap-x-2 md-corner-md px-2 py-2 text-left md-type-body-s ${
+                  navMention === m.key
+                    ? "bg-[var(--md-sys-color-secondary-container)] text-md-on-secondary-container"
+                    : "text-md-on-surface-variant md-state-hover"
+                }`}
+              >
+                <span className="min-w-0 truncate">
+                  @{m.label}
+                </span>
+                <span
+                  className={`${countCol} ${
+                    navMention === m.key
+                      ? "text-md-on-secondary-container/80"
+                      : ""
+                  }`}
+                >
+                  {m.count}
+                </span>
+              </button>
+            </li>
+          ))}
+        </ul>
+        </div>
         </div>
       </div>
     </aside>

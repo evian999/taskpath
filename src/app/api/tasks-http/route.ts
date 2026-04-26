@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { loadAppDataForUser } from "@/lib/load-user-app-data";
 import { findUserIdByTaskHttpToken } from "@/lib/task-http-resolve-user";
 import type { AppData, Task } from "@/lib/types";
+import { ARCHIVE_FOLDER_KEY, RECENT_DELETED_FOLDER_KEY } from "@/lib/types";
 
 function buildTasksHttpPayload(data: AppData) {
   const folderById = new Map(data.folders.map((f) => [f.id, f]));
@@ -9,6 +10,8 @@ function buildTasksHttpPayload(data: AppData) {
 
   function folderNameForTask(t: Task): string {
     if (!t.folderId) return "收件箱";
+    if (t.folderId === ARCHIVE_FOLDER_KEY) return "归档";
+    if (t.folderId === RECENT_DELETED_FOLDER_KEY) return "最近删除的任务";
     return folderById.get(t.folderId)?.name ?? t.folderId;
   }
 

@@ -43,7 +43,6 @@ function buildExportPayload(s: {
 export function SettingsClient() {
   const hydrated = useAppStore((s) => s.hydrated);
   const loadError = useAppStore((s) => s.loadError);
-  const hydrate = useAppStore((s) => s.hydrate);
   const tasks = useAppStore((s) => s.tasks);
   const edges = useAppStore((s) => s.edges);
   const groups = useAppStore((s) => s.groups);
@@ -55,27 +54,54 @@ export function SettingsClient() {
   const regenerateTaskHttpApiToken = useAppStore(
     (s) => s.regenerateTaskHttpApiToken,
   );
+  const setTrashRetentionDays = useAppStore((s) => s.setTrashRetentionDays);
   const replaceAppData = useAppStore((s) => s.replaceAppData);
 
   useEffect(() => {
-    void hydrate();
-  }, [hydrate]);
+    void useAppStore.getState().hydrate();
+  }, []);
 
   const [dragOver, setDragOver] = useState(false);
   const [parseError, setParseError] = useState<string | null>(null);
   const [preview, setPreview] = useState<ParsedPreview | null>(null);
   const [importDone, setImportDone] = useState<string | null>(null);
   const [copyHint, setCopyHint] = useState<string | null>(null);
+  const [myInviteToken, setMyInviteToken] = useState<string | null>(null);
+  const [inviteLoadError, setInviteLoadError] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (!hydrated || loadError) return;
+    void (async () => {
+      try {
+        const r = await fetch("/api/auth/my-invite", { credentials: "include" });
+        const j = (await r.json()) as { inviteToken?: string; error?: string };
+        if (!r.ok) throw new Error(j.error ?? "加载失败");
+        setMyInviteToken(j.inviteToken ?? null);
+        setInviteLoadError(null);
+      } catch (e) {
+        setInviteLoadError(e instanceof Error ? e.message : "加载失败");
+      }
+    })();
+  }, [hydrated, loadError]);
 
   const taskHttp = preferences?.taskHttpApi;
   const taskHttpEnabled = taskHttp?.enabled === true;
   const taskHttpToken = taskHttp?.token ?? "";
+  const trashRetentionDays = Math.min(
+    7,
+    Math.max(1, preferences?.trashRetentionDays ?? 7),
+  );
 
-  const exampleUrl =
-    typeof window !== "undefined"
-      ? `${window.location.origin}/api/tasks-http?token=${taskHttpToken || "<token>"}`
-      : "/api/tasks-http?token=<token>";
+  /** 避免 SSR 与客户端首帧因 window 不一致产生 hydration mismatch */
+  const [clientOrigin, setClientOrigin] = useState("");
+  useEffect(() => {
+    setClientOrigin(window.location.origin);
+  }, []);
+
+  const exampleUrl = clientOrigin
+    ? `${clientOrigin}/api/tasks-http?token=${taskHttpToken || "<token>"}`
+    : `/api/tasks-http?token=${taskHttpToken || "<token>"}`;
 
   const onDownload = useCallback(() => {
     const payload = buildExportPayload({
@@ -189,6 +215,41 @@ export function SettingsClient() {
       </div>
 
       <section className="rounded-2xl border border-[var(--panel-border)] bg-[var(--panel-bg)]/90 p-6 shadow-xl backdrop-blur-xl">
+        <div className="mb-3 text-sm font-medium text-zinc-300">注册邀请码</div>
+        <p className="mb-3 text-xs text-zinc-500">
+          新用户注册时必须填写有效邀请码。可将下方「我的邀请码」发给他人；站长也可在部署环境配置{" "}
+          <code className="text-[10px] text-zinc-400">REGISTER_INVITE_CODES</code>{" "}
+          （逗号分隔多个码）作为通用邀请。
+        </p>
+        {inviteLoadError ? (
+          <p className="text-xs text-red-400">{inviteLoadError}</p>
+        ) : myInviteToken ? (
+          <div className="space-y-2">
+            <p className="text-[10px] font-medium uppercase tracking-wide text-zinc-500">
+              我的邀请码
+            </p>
+            <code className="block break-all rounded-md bg-black/40 px-2 py-2 text-[11px] text-zinc-400">
+              {myInviteToken}
+            </code>
+            <button
+              type="button"
+              className="inline-flex items-center gap-1.5 rounded-lg border border-zinc-600 px-3 py-1.5 text-xs text-zinc-300 hover:bg-white/5"
+              onClick={async () => {
+                await navigator.clipboard.writeText(myInviteToken);
+                setCopyHint("已复制邀请码");
+                setTimeout(() => setCopyHint(null), 2000);
+              }}
+            >
+              <Copy className="h-3.5 w-3.5" />
+              复制邀请码
+            </button>
+          </div>
+        ) : (
+          <p className="text-xs text-zinc-500">加载中…</p>
+        )}
+      </section>
+
+      <section className="rounded-2xl border border-[var(--panel-border)] bg-[var(--panel-bg)]/90 p-6 shadow-xl backdrop-blur-xl">
         <div className="mb-3 text-sm font-medium text-zinc-300">
           任务 HTTP API（只读）
         </div>
@@ -280,12 +341,34 @@ export function SettingsClient() {
               curl：{" "}
               <code className="break-all text-zinc-500">
                 curl -H &quot;Authorization: Bearer {taskHttpToken || "TOKEN"}&quot;{" "}
-                {typeof window !== "undefined" ? window.location.origin : ""}
+                {clientOrigin || ""}
                 /api/tasks-http
               </code>
             </p>
           </div>
         ) : null}
+      </section>
+
+      <section className="rounded-2xl border border-[var(--panel-border)] bg-[var(--panel-bg)]/90 p-6 shadow-xl backdrop-blur-xl">
+        <div className="mb-3 text-sm font-medium text-zinc-300">最近删除</div>
+        <p className="mb-4 text-xs text-zinc-500">
+          回收站中的任务最多保留若干天（1–7），超过期限会在下次载入数据时自动永久删除。不含{" "}
+          <code className="text-[10px]">trashedAt</code> 的旧数据不会自动清理。
+        </p>
+        <label className="flex flex-col gap-2 text-sm text-zinc-300">
+          <span className="text-xs text-zinc-500">
+            保留天数：<strong className="text-zinc-200">{trashRetentionDays}</strong> 天
+          </span>
+          <input
+            type="range"
+            min={1}
+            max={7}
+            step={1}
+            value={trashRetentionDays}
+            className="accent-[var(--accent)]"
+            onChange={(e) => setTrashRetentionDays(Number(e.target.value))}
+          />
+        </label>
       </section>
 
       <section className="rounded-2xl border border-[var(--panel-border)] bg-[var(--panel-bg)]/90 p-6 shadow-xl backdrop-blur-xl">

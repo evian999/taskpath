@@ -7,8 +7,9 @@ import type { Rect, TodoEdge, Vec2 } from "./types";
 /** 与 TaskNode 宽度、flow-build 默认布局一致的中心参考宽 */
 const NODE_W = 240;
 const NODE_H = 100;
-/** 与 FolderLaneNode 标题区大致对齐 */
-const FOLDER_HEADER = 38;
+/** 与 FolderLaneNode 标题区大致对齐；任务相对文件夹顶边的最小 y 须 ≥ 此值，避免遮住标题 */
+export const FOLDER_LANE_HEADER_PX = 52;
+const FOLDER_HEADER = FOLDER_LANE_HEADER_PX;
 
 export function taskHasAnyEdge(taskId: string, edges: TodoEdge[]): boolean {
   return edges.some((e) => e.source === taskId || e.target === taskId);

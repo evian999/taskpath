@@ -9,7 +9,7 @@ export type FolderLaneData = {
   color?: string;
 };
 
-export function FolderLaneNode({ data, selected }: NodeProps) {
+export function FolderLaneNode({ id, data, selected }: NodeProps) {
   const d = data as FolderLaneData;
   const accent = d.color ?? "rgba(56, 189, 248, 0.35)";
   const { getNodes } = useReactFlow();
@@ -31,7 +31,7 @@ export function FolderLaneNode({ data, selected }: NodeProps) {
         }}
       />
       <div
-        className={`folder-lane pointer-events-none relative h-full w-full md-corner-xl border border-[var(--md-sys-color-outline)] bg-[var(--md-sys-color-surface-container)]/40 backdrop-blur-[1px] ${
+        className={`folder-lane pointer-events-none flex h-full w-full flex-col md-corner-xl border border-[var(--md-sys-color-outline)] bg-[var(--md-sys-color-surface-container)]/40 backdrop-blur-[1px] ${
           selected ? "ring-1 ring-md-primary" : ""
         }`}
         style={{
@@ -40,11 +40,12 @@ export function FolderLaneNode({ data, selected }: NodeProps) {
           boxShadow: `inset 0 0 40px ${accent}12`,
         }}
       >
-        <div className="folder-lane-drag pointer-events-auto cursor-grab select-none px-2 py-1.5 active:cursor-grabbing">
+        <div className="folder-lane-drag pointer-events-auto shrink-0 cursor-grab select-none px-2 py-1.5 active:cursor-grabbing">
           <span className="md-type-label-s">
             {d.name}
           </span>
         </div>
+        <div className="relative min-h-0 flex-1 pointer-events-none" />
       </div>
     </>
   );

@@ -9,6 +9,7 @@ export default function RegisterPage() {
   const router = useRouter();
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
+  const [inviteCode, setInviteCode] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
@@ -20,7 +21,7 @@ export default function RegisterPage() {
       const res = await fetch("/api/auth/register", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ username, password }),
+        body: JSON.stringify({ username, password, inviteCode }),
       });
       const data = (await res.json()) as { ok?: boolean; error?: string };
       if (!res.ok || !data.ok) {
@@ -65,6 +66,16 @@ export default function RegisterPage() {
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               placeholder="至少 6 位"
+            />
+          </div>
+          <div>
+            <label className="text-xs font-medium text-zinc-400">邀请码</label>
+            <input
+              className="mt-1.5 w-full rounded-xl border border-zinc-700/60 bg-[var(--bg-deep)] px-4 py-3 text-sm text-zinc-100 outline-none focus:border-[var(--accent)]"
+              autoComplete="off"
+              value={inviteCode}
+              onChange={(e) => setInviteCode(e.target.value)}
+              placeholder="向已注册用户索取，或站长提供的通用码"
             />
           </div>
           {error ? (

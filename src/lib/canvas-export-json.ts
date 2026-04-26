@@ -11,6 +11,7 @@ import type {
 import {
   ARCHIVE_FOLDER_KEY,
   INBOX_FOLDER_KEY,
+  RECENT_DELETED_FOLDER_KEY,
   taskFolderKey,
 } from "@/lib/types";
 
@@ -19,6 +20,7 @@ const FALLBACK_TASK_BOX = { w: 240, h: 92 } as const;
 function folderLaneLabel(folderKey: string, folders: Folder[]): string {
   if (folderKey === INBOX_FOLDER_KEY) return "收件箱";
   if (folderKey === ARCHIVE_FOLDER_KEY) return "归档";
+  if (folderKey === RECENT_DELETED_FOLDER_KEY) return "最近删除的任务";
   return folders.find((f) => f.id === folderKey)?.name ?? folderKey;
 }
 

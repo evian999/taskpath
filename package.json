@@ -3,8 +3,9 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
-    "dev:debug": "next dev --inspect",
+    "dev": "next dev --webpack",
+    "dev:turbo": "next dev --turbopack",
+    "dev:debug": "next dev --webpack --inspect",
     "build": "next build",
     "start": "next start",
     "lint": "eslint"

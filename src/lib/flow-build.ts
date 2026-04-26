@@ -2,13 +2,24 @@ import type { Edge, Node } from "@xyflow/react";
 import {
   defaultGridPositionInFolder,
   defaultSphericalPositionInFolder,
+  FOLDER_LANE_HEADER_PX,
   taskHasAnyEdge,
 } from "@/lib/canvas-layout";
 import { computeGroupRectFromTaskPositions } from "@/lib/folder-fit";
-import type { Folder, LayoutState, NavFolderId, Task, TaskGroup, TodoEdge } from "./types";
+import type {
+  Folder,
+  LayoutState,
+  NavFolderId,
+  Tag,
+  Task,
+  TaskGroup,
+  TodoEdge,
+  Vec2,
+} from "./types";
 import {
   ARCHIVE_FOLDER_KEY,
   INBOX_FOLDER_KEY,
+  RECENT_DELETED_FOLDER_KEY,
   allCanvasFolderLaneKeys,
   taskFolderKey,
 } from "./types";
@@ -34,21 +45,29 @@ export function taskParentGroup(
 function folderDisplayName(folderKey: string, folders: Folder[]): string {
   if (folderKey === INBOX_FOLDER_KEY) return "收件箱";
   if (folderKey === ARCHIVE_FOLDER_KEY) return "归档";
+  if (folderKey === RECENT_DELETED_FOLDER_KEY) return "最近删除的任务";
   return folders.find((f) => f.id === folderKey)?.name ?? "文件夹";
 }
 
 function folderColor(folderKey: string, folders: Folder[]): string | undefined {
-  if (folderKey === INBOX_FOLDER_KEY || folderKey === ARCHIVE_FOLDER_KEY)
+  if (
+    folderKey === INBOX_FOLDER_KEY ||
+    folderKey === ARCHIVE_FOLDER_KEY ||
+    folderKey === RECENT_DELETED_FOLDER_KEY
+  )
     return undefined;
   return folders.find((f) => f.id === folderKey)?.color;
 }
 
 function filterTasksByNav(tasks: Task[], navFolderId: NavFolderId): Task[] {
-  if (navFolderId === "all") return tasks;
+  if (navFolderId === "all")
+    return tasks.filter((t) => t.folderId !== RECENT_DELETED_FOLDER_KEY);
   if (navFolderId === INBOX_FOLDER_KEY)
     return tasks.filter((t) => !t.folderId);
   if (navFolderId === ARCHIVE_FOLDER_KEY)
     return tasks.filter((t) => t.folderId === ARCHIVE_FOLDER_KEY);
+  if (navFolderId === RECENT_DELETED_FOLDER_KEY)
+    return tasks.filter((t) => t.folderId === RECENT_DELETED_FOLDER_KEY);
   return tasks.filter((t) => t.folderId === navFolderId);
 }
 
@@ -58,11 +77,20 @@ function filterTasksByNav(tasks: Task[], navFolderId: NavFolderId): Task[] {
  * - 已完成且无出边（无「下一步」）：不显示；
  * - 已完成且有出边：沿 **source→target** 方向能否到达至少一个**未完成**任务，能则显示，否则不显示。
  */
+export type CanvasVisibilityOptions = {
+  /** true：当前导航下所有任务都上画布（含已无未完成下游的已完成）；默认 false 沿用「下游有未完成才显示已完成」 */
+  showAllCompletedInNav?: boolean;
+};
+
 function canvasVisibleTasks(
   tasks: Task[],
   navFolderId: NavFolderId,
   edges: TodoEdge[],
+  opts?: CanvasVisibilityOptions,
 ): Task[] {
+  if (opts?.showAllCompletedInNav) {
+    return filterTasksByNav(tasks, navFolderId);
+  }
   const nav = filterTasksByNav(tasks, navFolderId);
   const navIds = new Set(nav.map((t) => t.id));
   const navById = new Map(nav.map((t) => [t.id, t] as const));
@@ -83,14 +111,14 @@ function canvasVisibleTasks(
       seen.add(id);
       const t = navById.get(id);
       if (!t) continue;
-      if (!t.completedAt) return true;
+      if (!t.completedAt && !t.abandonedAt) return true;
       for (const n of outgoing.get(id) ?? []) stack.push(n);
     }
     return false;
   }
 
   return nav.filter((t) => {
-    if (!t.completedAt) return true;
+    if (!t.completedAt && !t.abandonedAt) return true;
     return hasIncompleteDownstream(t.id);
   });
 }
@@ -135,8 +163,14 @@ export function buildFlowNodes(
   folders: Folder[],
   navFolderId: NavFolderId,
   allEdges: TodoEdge[],
+  visibility?: CanvasVisibilityOptions,
 ): Node[] {
-  const filteredTasks = canvasVisibleTasks(tasks, navFolderId, allEdges);
+  const filteredTasks = canvasVisibleTasks(
+    tasks,
+    navFolderId,
+    allEdges,
+    visibility,
+  );
   const visibleIds = new Set(filteredTasks.map((t) => t.id));
   const filteredGroups = filterGroupsByTasks(groups, visibleIds);
 
@@ -223,9 +257,13 @@ export function buildFlowNodes(
     const splitLanes =
       isolatedSorted.length > 0 && connectedSorted.length > 0;
 
-    const abs =
-      layout.positions[t.id] ??
-      (taskHasAnyEdge(t.id, allEdges)
+    let abs: Vec2;
+    if (layout.positions[t.id]) {
+      abs = layout.positions[t.id]!;
+      const minY = fRect.y + FOLDER_LANE_HEADER_PX;
+      if (abs.y < minY) abs = { ...abs, y: minY };
+    } else {
+      abs = taskHasAnyEdge(t.id, allEdges)
         ? defaultGridPositionInFolder(
             fRect,
             Math.max(0, connectedSorted.findIndex((x) => x.id === t.id)),
@@ -236,7 +274,8 @@ export function buildFlowNodes(
             Math.max(0, isolatedSorted.findIndex((x) => x.id === t.id)),
             isolatedSorted.length,
             splitLanes ? "left" : "full",
-          ));
+          );
+    }
 
     let position: { x: number; y: number };
     let parentId: string | undefined;
@@ -284,31 +323,53 @@ export function filterEdgesForTasks(
   );
 }
 
-export function buildFlowEdges(edges: TodoEdge[]): Edge[] {
-  return edges.map((e) => ({
-    id: e.id,
-    source: e.source,
-    target: e.target,
-    label: e.label,
-    type: "highlightSmoothstep",
-    animated: false,
-    selectable: true,
-    deletable: true,
-    interactionWidth: 32,
-    style: { stroke: "var(--flow-edge)", strokeWidth: 1.5 },
-    labelStyle: { fill: "var(--flow-label)", fontSize: 11 },
-    labelBgStyle: { fill: "var(--flow-label-bg)" },
-    labelBgPadding: [4, 2] as [number, number],
-    labelBgBorderRadius: 4,
-  }));
+function edgeStrokeFromTargetTask(
+  target: Task | undefined,
+  tags: Tag[],
+): string {
+  const firstId = target?.tagIds?.[0];
+  if (!firstId) return "var(--flow-edge)";
+  const tag = tags.find((t) => t.id === firstId);
+  const c = tag?.color?.trim();
+  if (!c) return "var(--flow-edge)";
+  return c;
+}
+
+export function buildFlowEdges(
+  edges: TodoEdge[],
+  tasks: Task[],
+  tags: Tag[],
+): Edge[] {
+  const byId = new Map(tasks.map((t) => [t.id, t] as const));
+  return edges.map((e) => {
+    const targetTask = byId.get(e.target);
+    const stroke = edgeStrokeFromTargetTask(targetTask, tags);
+    return {
+      id: e.id,
+      source: e.source,
+      target: e.target,
+      label: e.label,
+      type: "highlightSmoothstep",
+      animated: false,
+      selectable: true,
+      deletable: true,
+      interactionWidth: 32,
+      style: { stroke, strokeWidth: 1.5 },
+      labelStyle: { fill: "var(--flow-label)", fontSize: 11 },
+      labelBgStyle: { fill: "var(--flow-label-bg)" },
+      labelBgPadding: [4, 2] as [number, number],
+      labelBgBorderRadius: 4,
+    };
+  });
 }
 
 export function visibleTaskIdSet(
   tasks: Task[],
   navFolderId: NavFolderId,
   edges: TodoEdge[],
+  visibility?: CanvasVisibilityOptions,
 ): Set<string> {
   return new Set(
-    canvasVisibleTasks(tasks, navFolderId, edges).map((t) => t.id),
+    canvasVisibleTasks(tasks, navFolderId, edges, visibility).map((t) => t.id),
   );
 }

@@ -9,10 +9,13 @@ import type {
 import {
   ARCHIVE_FOLDER_KEY,
   INBOX_FOLDER_KEY,
+  RECENT_DELETED_FOLDER_KEY,
   defaultArchiveRect,
   defaultInboxRect,
+  defaultRecentDeletedRect,
   emptyAppData,
 } from "./types";
+import { normalizeMentionList } from "./mentions";
 
 function isVec2(v: unknown): v is { x: number; y: number } {
   if (!v || typeof v !== "object") return false;
@@ -43,10 +46,13 @@ function ensureFolderRects(
   const out: LayoutState["folderRects"] = {
     [INBOX_FOLDER_KEY]: defaultInboxRect(),
     [ARCHIVE_FOLDER_KEY]: defaultArchiveRect(),
+    [RECENT_DELETED_FOLDER_KEY]: defaultRecentDeletedRect(),
     ...raw,
   };
   if (!out[INBOX_FOLDER_KEY]) out[INBOX_FOLDER_KEY] = defaultInboxRect();
   if (!out[ARCHIVE_FOLDER_KEY]) out[ARCHIVE_FOLDER_KEY] = defaultArchiveRect();
+  if (!out[RECENT_DELETED_FOLDER_KEY])
+    out[RECENT_DELETED_FOLDER_KEY] = defaultRecentDeletedRect();
   folders.forEach((f, i) => {
     if (!out[f.id]) {
       out[f.id] = { x: 40 + (i + 1) * 420, y: 40, w: 360, h: 1200 };
@@ -104,15 +110,47 @@ export function parseAppData(raw: unknown): AppData {
     }
     let folderId: string | undefined;
     if (typeof x.folderId === "string") folderId = x.folderId;
+    let trashRestoreFolderId: string | null | undefined;
+    if (x.trashRestoreFolderId === null) trashRestoreFolderId = null;
+    else if (typeof x.trashRestoreFolderId === "string")
+      trashRestoreFolderId = x.trashRestoreFolderId;
+    const trashedAt =
+      typeof x.trashedAt === "string" ? x.trashedAt : undefined;
     const priority = parseTaskPriority(x.priority);
+    const dueAt = typeof x.dueAt === "string" ? x.dueAt : undefined;
+    let progressCurrent: number | undefined;
+    let progressTotal: number | undefined;
+    if (typeof x.progressCurrent === "number" && Number.isFinite(x.progressCurrent)) {
+      progressCurrent = Math.max(0, Math.round(x.progressCurrent));
+    }
+    if (typeof x.progressTotal === "number" && Number.isFinite(x.progressTotal)) {
+      progressTotal = Math.max(0, Math.round(x.progressTotal));
+    }
+    const abandonedAt =
+      typeof x.abandonedAt === "string" ? x.abandonedAt : undefined;
+    const abandonReason =
+      typeof x.abandonReason === "string" ? x.abandonReason : undefined;
+    const spacedRepetitionEnabled = x.spacedRepetitionEnabled === true;
+    const mentions = normalizeMentionList(x.mentions);
     out.tasks.push({
       id: x.id,
       title: x.title,
       createdAt: x.createdAt,
       ...(typeof x.completedAt === "string" ? { completedAt: x.completedAt } : {}),
+      ...(dueAt ? { dueAt } : {}),
+      ...(progressCurrent !== undefined ? { progressCurrent } : {}),
+      ...(progressTotal !== undefined ? { progressTotal } : {}),
+      ...(abandonedAt ? { abandonedAt } : {}),
+      ...(abandonReason ? { abandonReason } : {}),
+      ...(spacedRepetitionEnabled ? { spacedRepetitionEnabled } : {}),
       ...(typeof x.result === "string" ? { result: x.result } : {}),
       ...(folderId ? { folderId } : {}),
+      ...(trashedAt ? { trashedAt } : {}),
+      ...(trashRestoreFolderId !== undefined
+        ? { trashRestoreFolderId }
+        : {}),
       ...(tagIds?.length ? { tagIds } : {}),
+      ...(mentions?.length ? { mentions } : {}),
       ...(priority ? { priority } : {}),
     });
   }
@@ -178,6 +216,11 @@ export function parseAppData(raw: unknown): AppData {
         ...out.preferences,
         taskHttpApi: { enabled, token },
       };
+    }
+    const trd = pr.trashRetentionDays;
+    if (typeof trd === "number" && Number.isFinite(trd)) {
+      const d = Math.min(7, Math.max(1, Math.round(trd)));
+      out.preferences = { ...out.preferences, trashRetentionDays: d };
     }
   }
 

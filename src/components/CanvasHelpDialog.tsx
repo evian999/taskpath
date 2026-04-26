@@ -38,8 +38,16 @@ export function CanvasHelpDialog({ open, onClose }: Props) {
           </li>
           <li>
             <strong className="text-md-on-surface">连线</strong>
-            ：选中后高亮；按 Delete / Backspace 删除。拖线到空白或按 Esc
-            取消正在创建的连线。
+            ：选中后高亮，左下角会出现「连线说明」输入框可改边上文字；按 Delete /
+            Backspace 删除。拖线到空白或按 Esc 取消正在创建的连线。
+          </li>
+          <li>
+            <strong className="text-md-on-surface">框选与平移（选择模式）</strong>
+            ：请在<strong>画布空白</strong>（点状背景、无节点处）左键斜向拖曳框选。文件夹彩色条内请以
+            <strong>Ctrl / ⌘ + 点击</strong>
+            多选任务（条内拖框易与画布手势冲突）。平移视口请用<strong>鼠标中键或右键</strong>
+            拖动，或<strong>按住空格</strong>时再按住左键拖动；也可用小地图与左下角缩放控件。按 Esc
+            可取消未结束的框选。
           </li>
           <li>
             <strong className="text-md-on-surface">小地图与缩放</strong>

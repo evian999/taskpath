@@ -539,6 +539,26 @@ html[data-theme="light"] .shadow-cyan-500\/\[0\.07\] {
   display: none;
 }
 
+/* 选择模式：覆盖 xyflow 在 .pane.draggable 上的抓手，空白处显示普通箭头光标 */
+.react-flow.canvas-tool--select .react-flow__pane.draggable:not(.dragging) {
+  cursor: default !important;
+}
+/* 中键/右键拖动画布时仍用 grabbing */
+.react-flow.canvas-tool--select .react-flow__pane.dragging {
+  cursor: grabbing !important;
+}
+
+/* 选择模式：文件夹为箭头。勿对节点用 !important，否则会压掉 NodeResizer 子控件的 resize 光标 */
+.react-flow.canvas-tool--select
+  .react-flow__node-folderLane.draggable:not(.dragging),
+.react-flow.canvas-tool--select
+  .react-flow__node[data-id^="fld-"].draggable:not(.dragging) {
+  cursor: default;
+}
+.react-flow.canvas-tool--select .folder-lane-drag {
+  cursor: default;
+}
+
 /* 列表模式：点击「下一任务」跳转后的目标卡片高亮 */
 @keyframes list-task-target-flash {
   0%,

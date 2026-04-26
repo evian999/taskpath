@@ -1,4 +1,4 @@
-import { mkdir, readFile } from "fs/promises";
+import { readFile } from "fs/promises";
 import { join } from "path";
 import { getMemoryStore, setMemoryStore } from "@/lib/memory-store";
 import {
@@ -12,12 +12,12 @@ import {
 import { loadTaskHttpPrefsFromSupabase } from "@/lib/supabase/task-http-prefs";
 import { parseAppData } from "@/lib/validate";
 import type { AppData } from "@/lib/types";
+import {
+  userStorePath,
+  userStorePathProjectLegacy,
+} from "@/lib/user-store-path";
 
 const STORE_LEGACY = join(process.cwd(), "data", "store.json");
-
-function userStorePath(userId: string) {
-  return join(process.cwd(), "data", "stores", `${userId}.json`);
-}
 
 function mergeTaskHttpPrefs(
   data: AppData,
@@ -56,14 +56,19 @@ export async function loadAppDataForUser(userId: string): Promise<AppData> {
     }
   }
 
-  await mkdir(join(process.cwd(), "data", "stores"), { recursive: true });
-  try {
-    const buf = await readFile(userStorePath(userId), "utf-8");
-    const data = parseAppData(JSON.parse(buf));
-    setMemoryStore(data);
-    return data;
-  } catch {
-    /* no per-user file */
+  const localPaths =
+    process.env.NODE_ENV === "development"
+      ? [userStorePath(userId), userStorePathProjectLegacy(userId)]
+      : [userStorePath(userId)];
+  for (const p of localPaths) {
+    try {
+      const buf = await readFile(p, "utf-8");
+      const data = parseAppData(JSON.parse(buf));
+      setMemoryStore(data);
+      return data;
+    } catch {
+      /* try next path */
+    }
   }
 
   try {

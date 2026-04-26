@@ -1,7 +1,7 @@
 "use client";
 
 import { Handle, Position, type NodeProps } from "@xyflow/react";
-import { Check, Pencil, Trash2 } from "lucide-react";
+import { ArchiveRestore, Check, Pencil, Trash2, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { CompleteTaskDialog } from "@/components/CompleteTaskDialog";
@@ -9,6 +9,7 @@ import type { Task } from "@/lib/types";
 import {
   ARCHIVE_FOLDER_KEY,
   INBOX_FOLDER_KEY,
+  RECENT_DELETED_FOLDER_KEY,
   taskFolderKey,
 } from "@/lib/types";
 import { useAppStore } from "@/lib/store";
@@ -19,8 +20,10 @@ export type TaskNodeData = { task: Task };
 
 export function TaskNode({ data, selected }: NodeProps) {
   const { task } = data as TaskNodeData;
-  const done = Boolean(task.completedAt);
+  const abandoned = Boolean(task.abandonedAt);
+  const done = Boolean(task.completedAt || task.abandonedAt);
   const deleteTask = useAppStore((s) => s.deleteTask);
+  const restoreTaskFromTrash = useAppStore((s) => s.restoreTaskFromTrash);
   const updateTask = useAppStore((s) => s.updateTask);
   const uncompleteTask = useAppStore((s) => s.uncompleteTask);
   const toggleTaskTag = useAppStore((s) => s.toggleTaskTag);
@@ -41,7 +44,9 @@ export function TaskNode({ data, selected }: NodeProps) {
       ? "收件箱"
       : fk === ARCHIVE_FOLDER_KEY
         ? "归档"
-        : folders.find((f) => f.id === fk)?.name ?? "文件夹";
+        : fk === RECENT_DELETED_FOLDER_KEY
+          ? "最近删除的任务"
+          : folders.find((f) => f.id === fk)?.name ?? "文件夹";
 
   const taskTags = (task.tagIds ?? [])
     .map((id) => tags.find((t) => t.id === id))
@@ -76,7 +81,9 @@ export function TaskNode({ data, selected }: NodeProps) {
           type="button"
           className={`nodrag nopan mt-0.5 flex h-4 w-4 shrink-0 cursor-pointer items-center justify-center rounded-sm border-2 transition-colors md-focus-ring ${
             done
-              ? "border-[var(--accent)] bg-[var(--accent)]/15 text-[var(--accent)]"
+              ? abandoned
+                ? "border-amber-700 bg-amber-900/40 text-amber-200"
+                : "border-[var(--accent)] bg-[var(--accent)]/15 text-[var(--accent)]"
               : ""
           }`}
           style={
@@ -88,19 +95,28 @@ export function TaskNode({ data, selected }: NodeProps) {
               : undefined
           }
           title={
-            done
-              ? "标记为未完成"
-              : task.priority === undefined
-                ? "未完成（无优先级）"
-                : "未完成时边框颜色表示优先级；点击完成"
+            abandoned
+              ? "已放弃，点击还原为未完成"
+              : done
+                ? "标记为未完成"
+                : task.priority === undefined
+                  ? "未完成（无优先级）"
+                  : "未完成时边框颜色表示优先级；点击完成"
           }
           onClick={(e) => {
             e.stopPropagation();
             if (done) uncompleteTask(task.id);
-            else setCompleteOpen(true);
+            else if (task.folderId !== RECENT_DELETED_FOLDER_KEY)
+              setCompleteOpen(true);
           }}
         >
-          {done ? <Check className="h-2.5 w-2.5" strokeWidth={3} /> : null}
+          {done ? (
+            abandoned ? (
+              <X className="h-2.5 w-2.5" strokeWidth={3} />
+            ) : (
+              <Check className="h-2.5 w-2.5" strokeWidth={3} />
+            )
+          ) : null}
         </button>
         <div className="min-w-0 flex-1">
           <p className="mb-1 text-[0.625rem] leading-3 text-md-on-surface-variant">
@@ -149,27 +165,55 @@ export function TaskNode({ data, selected }: NodeProps) {
               ))}
             </div>
           ) : null}
+          {(task.mentions?.length ?? 0) > 0 ? (
+            <p className="mt-1 line-clamp-2 text-[0.625rem] leading-snug text-md-on-surface-variant">
+              {(task.mentions ?? []).map((m) => `@${m}`).join(" ")}
+            </p>
+          ) : null}
+          {task.abandonedAt && task.abandonReason ? (
+            <p className="mt-1 line-clamp-2 md-type-body-s text-amber-200/80">
+              放弃：{task.abandonReason}
+            </p>
+          ) : null}
           {task.result ? (
             <p className="mt-1 line-clamp-2 md-type-body-s">{task.result}</p>
           ) : null}
         </div>
         <div className="flex shrink-0 flex-col gap-0.5">
-          <button
-            type="button"
-            className="nodrag nopan md-corner-sm p-1 text-md-on-surface-variant md-state-hover-subtle hover:text-md-primary md-focus-ring"
-            title="编辑标题"
-            onClick={(e) => {
-              e.stopPropagation();
-              setTitleDraft(task.title);
-              setEditing(true);
-            }}
-          >
-            <Pencil className="h-3.5 w-3.5" />
-          </button>
+          {task.folderId === RECENT_DELETED_FOLDER_KEY ? (
+            <button
+              type="button"
+              className="nodrag nopan md-corner-sm p-1 text-md-on-surface-variant md-state-hover-subtle hover:text-md-primary md-focus-ring"
+              title="恢复到删除前所在文件夹"
+              onClick={(e) => {
+                e.stopPropagation();
+                restoreTaskFromTrash(task.id);
+              }}
+            >
+              <ArchiveRestore className="h-3.5 w-3.5" />
+            </button>
+          ) : (
+            <button
+              type="button"
+              className="nodrag nopan md-corner-sm p-1 text-md-on-surface-variant md-state-hover-subtle hover:text-md-primary md-focus-ring"
+              title="编辑标题"
+              onClick={(e) => {
+                e.stopPropagation();
+                setTitleDraft(task.title);
+                setEditing(true);
+              }}
+            >
+              <Pencil className="h-3.5 w-3.5" />
+            </button>
+          )}
           <button
             type="button"
             className="nodrag nopan md-corner-sm p-1 text-md-on-surface-variant md-state-hover-subtle hover:text-red-400 md-focus-ring"
-            title="删除任务"
+            title={
+              task.folderId === RECENT_DELETED_FOLDER_KEY
+                ? "永久删除"
+                : "删除任务"
+            }
             onClick={(e) => {
               e.stopPropagation();
               deleteTask(task.id);

@@ -9,6 +9,7 @@ import type {
   TodoEdge,
   Vec2,
 } from "@/lib/types";
+import { normalizeMentionList } from "@/lib/mentions";
 import { parseAppData } from "@/lib/validate";
 import { getSupabaseAdmin } from "./admin";
 import { saveTaskHttpPrefsToSupabase } from "./task-http-prefs";
@@ -29,6 +30,13 @@ type TaskRow = {
   result: string | null;
   folder_id: string | null;
   priority: string | null;
+  due_at: string | null;
+  progress_current: number | null;
+  progress_total: number | null;
+  abandoned_at: string | null;
+  abandon_reason: string | null;
+  spaced_repetition_enabled: boolean | null;
+  mentions: unknown;
 };
 type TaskTagRow = { task_id: string; tag_id: string };
 type GroupRow = { id: string; user_id: string; name: string };
@@ -77,7 +85,9 @@ export async function loadAppDataFromSupabase(
 
   const { data: taskRows, error: e3 } = await sb
     .from("tasks")
-    .select("id,user_id,title,created_at,completed_at,result,folder_id,priority")
+    .select(
+      "id,user_id,title,created_at,completed_at,result,folder_id,priority,due_at,progress_current,progress_total,abandoned_at,abandon_reason,spaced_repetition_enabled,mentions",
+    )
     .eq("user_id", userId);
   if (e3) throw e3;
 
@@ -104,11 +114,29 @@ export async function loadAppDataFromSupabase(
     const pr = r.priority?.trim();
     const priority =
       pr === "high" || pr === "medium" || pr === "low" ? pr : undefined;
+    const pc =
+      r.progress_current != null && Number.isFinite(r.progress_current)
+        ? Math.max(0, Math.round(r.progress_current))
+        : undefined;
+    const pt =
+      r.progress_total != null && Number.isFinite(r.progress_total)
+        ? Math.max(0, Math.round(r.progress_total))
+        : undefined;
+    const mentions = normalizeMentionList(r.mentions);
     return {
       id: r.id,
       title: r.title,
       createdAt: r.created_at,
       ...(r.completed_at ? { completedAt: r.completed_at } : {}),
+      ...(r.due_at ? { dueAt: r.due_at } : {}),
+      ...(pc !== undefined ? { progressCurrent: pc } : {}),
+      ...(pt !== undefined ? { progressTotal: pt } : {}),
+      ...(r.abandoned_at ? { abandonedAt: r.abandoned_at } : {}),
+      ...(r.abandon_reason ? { abandonReason: r.abandon_reason } : {}),
+      ...(r.spaced_repetition_enabled === true
+        ? { spacedRepetitionEnabled: true }
+        : {}),
+      ...(mentions ? { mentions } : {}),
       ...(r.result ? { result: r.result } : {}),
       ...(r.folder_id ? { folderId: r.folder_id } : {}),
       ...(tagIds?.length ? { tagIds } : {}),

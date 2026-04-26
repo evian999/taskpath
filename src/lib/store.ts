@@ -15,6 +15,7 @@ import type {
 } from "./types";
 import {
   INBOX_FOLDER_KEY,
+  RECENT_DELETED_FOLDER_KEY,
   allCanvasFolderLaneKeys,
   defaultFolderRectForKey,
   defaultInboxRect,
@@ -39,6 +40,7 @@ import {
   readFlowNodeSize,
 } from "@/lib/folder-fit";
 import { visibleTaskIdSet } from "@/lib/flow-build";
+import { mergeMentionsFromTitle } from "@/lib/mentions";
 import { parseAppData } from "@/lib/validate";
 import {
   listUnknownHashTagNamesInDraft,
@@ -97,6 +99,8 @@ type AppState = AppData & {
   mode: "list" | "canvas";
   navFolderId: NavFolderId;
   navTagId: string | null;
+  /** 列表侧栏 @提及筛选（小写键，与 mentions 不区分大小写匹配） */
+  navMention: string | null;
   /** 列表模式搜索（不入库，仅前端筛选） */
   listSearchQuery: string;
   listSearchOpen: boolean;
@@ -105,6 +109,7 @@ type AppState = AppData & {
   setMode: (m: "list" | "canvas") => void;
   setNavFolderId: (id: NavFolderId) => void;
   setNavTagId: (id: string | null) => void;
+  setNavMention: (key: string | null) => void;
   hydrate: () => Promise<void>;
   scheduleSave: () => void;
   addTask: (
@@ -119,14 +124,17 @@ type AppState = AppData & {
   ) => Task;
   updateTask: (id: string, patch: Partial<Task>) => void;
   deleteTask: (id: string) => void;
+  restoreTaskFromTrash: (id: string) => void;
   completeTask: (
     id: string,
     result: string,
     nextSteps: NextStepInput[],
   ) => void;
   uncompleteTask: (id: string) => void;
+  abandonTask: (id: string, reason: string) => void;
   addEdge: (source: string, target: string, label?: string) => void;
   removeEdge: (id: string) => void;
+  updateEdge: (edgeId: string, patch: Partial<TodoEdge>) => void;
   setEdges: (edges: TodoEdge[]) => void;
   setTaskPosition: (taskId: string, pos: Vec2) => void;
   setPositions: (positions: Record<string, Vec2>) => void;
@@ -164,9 +172,15 @@ type AppState = AppData & {
   replaceAppData: (data: AppData) => void;
   setTaskHttpApiEnabled: (enabled: boolean) => void;
   regenerateTaskHttpApiToken: () => void;
+  /** 最近删除保留天数（1–7），默认 7 */
+  setTrashRetentionDays: (days: number) => void;
+  /** 按 preferences.trashRetentionDays 永久删除超期回收站任务 */
+  purgeExpiredTrash: () => void;
 };
 
 let saveTimer: ReturnType<typeof setTimeout> | null = null;
+
+let hydrateInFlight: Promise<void> | null = null;
 
 function newId() {
   return crypto.randomUUID();
@@ -186,6 +200,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   mode: "list",
   navFolderId: "all",
   navTagId: null,
+  navMention: null,
   listSearchQuery: "",
   listSearchOpen: false,
 
@@ -241,6 +256,8 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   setNavTagId: (id) => set({ navTagId: id }),
 
+  setNavMention: (key) => set({ navMention: key }),
+
   clearSaveError: () => set({ saveError: null }),
 
   replaceAppData: (data) => {
@@ -254,6 +271,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       preferences: data.preferences ?? {},
       navFolderId: "all",
       navTagId: null,
+      navMention: null,
       listSearchQuery: "",
       listSearchOpen: false,
       saveError: null,
@@ -288,55 +306,119 @@ export const useAppStore = create<AppState>((set, get) => ({
     get().scheduleSave();
   },
 
-  hydrate: async () => {
-    try {
-      const res = await fetch("/api/data", { credentials: "include" });
-      if (res.status === 401) {
-        if (typeof window !== "undefined") window.location.href = "/login";
-        throw new Error("未登录");
+  setTrashRetentionDays: (days) => {
+    const d = Math.min(7, Math.max(1, Math.round(Number(days)) || 7));
+    set((s) => ({
+      preferences: {
+        ...s.preferences,
+        trashRetentionDays: d,
+      },
+    }));
+    get().scheduleSave();
+    queueMicrotask(() => get().purgeExpiredTrash());
+  },
+
+  purgeExpiredTrash: () => {
+    const s = get();
+    const raw = s.preferences?.trashRetentionDays;
+    const days = Math.min(7, Math.max(1, raw ?? 7));
+    const cutoff = Date.now() - days * 86400000;
+    const expiredIds = s.tasks
+      .filter(
+        (t) =>
+          t.folderId === RECENT_DELETED_FOLDER_KEY &&
+          typeof t.trashedAt === "string" &&
+          !Number.isNaN(new Date(t.trashedAt).getTime()) &&
+          new Date(t.trashedAt).getTime() < cutoff,
+      )
+      .map((t) => t.id);
+    if (expiredIds.length === 0) return;
+    const expiredSet = new Set(expiredIds);
+    set((st) => {
+      const groups = st.groups
+        .map((g) => ({
+          ...g,
+          taskIds: g.taskIds.filter((tid) => !expiredSet.has(tid)),
+        }))
+        .filter((g) => g.taskIds.length > 0);
+      const groupRects = { ...st.layout.groupRects };
+      for (const gid of Object.keys(groupRects)) {
+        if (!groups.some((g) => g.id === gid)) delete groupRects[gid];
       }
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const raw: unknown = await res.json();
-      const data = parseAppData(raw);
-      const vis = canvasLayoutVisibleIds(data.tasks, "all", data.edges);
-      const merged = mergeFolderRectsWithTaskBounds(
-        data.layout.folderRects,
-        data.tasks,
-        data.groups,
-        data.layout.positions,
-        data.layout.groupRects,
-        vis,
-      );
-      const packed = packFolderLanesNoOverlapForAllView(
-        allCanvasFolderLaneKeys(data.folders),
-        merged,
-        data.tasks,
-        data.groups,
-        data.layout.positions,
-        data.layout.groupRects,
-      );
-      set({
-        tasks: data.tasks,
-        edges: data.edges,
-        groups: data.groups,
-        folders: data.folders,
-        tags: data.tags,
-        layout: {
-          ...data.layout,
-          folderRects: packed.folderRects,
-          positions: packed.positions,
-          groupRects: packed.groupRects,
-        },
-        preferences: data.preferences ?? {},
-        hydrated: true,
-        loadError: null,
-      });
-    } catch (e) {
-      set({
-        hydrated: true,
-        loadError: e instanceof Error ? e.message : "加载失败",
-      });
-    }
+      const positions = { ...st.layout.positions };
+      for (const id of expiredSet) delete positions[id];
+      return {
+        tasks: st.tasks.filter((t) => !expiredSet.has(t.id)),
+        edges: st.edges.filter(
+          (e) => !expiredSet.has(e.source) && !expiredSet.has(e.target),
+        ),
+        groups,
+        layout: { ...st.layout, positions, groupRects },
+      };
+    });
+    get().scheduleSave();
+  },
+
+  hydrate: async () => {
+    const cur = get();
+    if (cur.hydrated && !cur.loadError) return;
+    if (hydrateInFlight) return hydrateInFlight;
+
+    hydrateInFlight = (async () => {
+      try {
+        const res = await fetch("/api/data", { credentials: "include" });
+        if (res.status === 401) {
+          if (typeof window !== "undefined") window.location.href = "/login";
+          throw new Error("未登录");
+        }
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const raw: unknown = await res.json();
+        const data = parseAppData(raw);
+        const vis = canvasLayoutVisibleIds(data.tasks, "all", data.edges);
+        const merged = mergeFolderRectsWithTaskBounds(
+          data.layout.folderRects,
+          data.tasks,
+          data.groups,
+          data.layout.positions,
+          data.layout.groupRects,
+          vis,
+        );
+        const packed = packFolderLanesNoOverlapForAllView(
+          allCanvasFolderLaneKeys(data.folders),
+          merged,
+          data.tasks,
+          data.groups,
+          data.layout.positions,
+          data.layout.groupRects,
+        );
+        set({
+          tasks: data.tasks,
+          edges: data.edges,
+          groups: data.groups,
+          folders: data.folders,
+          tags: data.tags,
+          layout: {
+            ...data.layout,
+            folderRects: packed.folderRects,
+            positions: packed.positions,
+            groupRects: packed.groupRects,
+          },
+          preferences: data.preferences ?? {},
+          hydrated: true,
+          loadError: null,
+        });
+        get().purgeExpiredTrash();
+      } catch (e) {
+        set({
+          hydrated: true,
+          loadError: e instanceof Error ? e.message : "加载失败",
+        });
+      } finally {
+        hydrateInFlight = null;
+      }
+    })();
+
+    return hydrateInFlight;
   },
 
   scheduleSave: () => {
@@ -391,17 +473,21 @@ export const useAppStore = create<AppState>((set, get) => ({
     } else {
       folderId = resolveNavToTaskFolderId(get().navFolderId);
     }
+    if (folderId === RECENT_DELETED_FOLDER_KEY) folderId = undefined;
 
     const rawTagIds = opts?.tagIds?.filter(Boolean) ?? [];
     const tagIds = [...new Set(rawTagIds)];
 
+    const trimmedTitle = title.trim() || "未命名任务";
+    const mentions = mergeMentionsFromTitle(trimmedTitle, undefined);
     const t: Task = {
       id: newId(),
-      title: title.trim() || "未命名任务",
+      title: trimmedTitle,
       createdAt: new Date().toISOString(),
       ...(folderId ? { folderId } : {}),
       ...(tagIds.length ? { tagIds } : {}),
       ...(opts?.priority ? { priority: opts.priority } : {}),
+      ...(mentions ? { mentions } : {}),
     };
 
     set((s) => {
@@ -466,32 +552,81 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   updateTask: (id, patch) => {
     set((s) => ({
-      tasks: s.tasks.map((x) => (x.id === id ? { ...x, ...patch } : x)),
+      tasks: s.tasks.map((x) => {
+        if (x.id !== id) return x;
+        if (patch.title === undefined) {
+          return { ...x, ...patch };
+        }
+        const baseMentions =
+          patch.mentions !== undefined ? patch.mentions : x.mentions;
+        const mentions = mergeMentionsFromTitle(patch.title, baseMentions);
+        return {
+          ...x,
+          ...patch,
+          mentions: mentions ?? undefined,
+        };
+      }),
     }));
     get().scheduleSave();
   },
 
   deleteTask: (id) => {
-    set((s) => {
-      const groups = s.groups
-        .map((g) => ({
-          ...g,
-          taskIds: g.taskIds.filter((tid) => tid !== id),
-        }))
-        .filter((g) => g.taskIds.length > 0);
-      const groupRects = { ...s.layout.groupRects };
-      for (const gid of Object.keys(groupRects)) {
-        if (!groups.some((g) => g.id === gid)) delete groupRects[gid];
-      }
-      const positions = { ...s.layout.positions };
-      delete positions[id];
-      return {
-        tasks: s.tasks.filter((x) => x.id !== id),
-        edges: s.edges.filter((e) => e.source !== id && e.target !== id),
-        groups,
-        layout: { ...s.layout, positions, groupRects },
-      };
-    });
+    const cur = get().tasks.find((t) => t.id === id);
+    if (!cur) return;
+    if (cur.folderId === RECENT_DELETED_FOLDER_KEY) {
+      set((s) => {
+        const groups = s.groups
+          .map((g) => ({
+            ...g,
+            taskIds: g.taskIds.filter((tid) => tid !== id),
+          }))
+          .filter((g) => g.taskIds.length > 0);
+        const groupRects = { ...s.layout.groupRects };
+        for (const gid of Object.keys(groupRects)) {
+          if (!groups.some((g) => g.id === gid)) delete groupRects[gid];
+        }
+        const positions = { ...s.layout.positions };
+        delete positions[id];
+        return {
+          tasks: s.tasks.filter((x) => x.id !== id),
+          edges: s.edges.filter((e) => e.source !== id && e.target !== id),
+          groups,
+          layout: { ...s.layout, positions, groupRects },
+        };
+      });
+      get().scheduleSave();
+      return;
+    }
+    const prevFolder = cur.folderId;
+    set((s) => ({
+      tasks: s.tasks.map((t) =>
+        t.id === id
+          ? {
+              ...t,
+              folderId: RECENT_DELETED_FOLDER_KEY,
+              trashRestoreFolderId:
+                prevFolder === undefined ? null : prevFolder,
+              trashedAt: new Date().toISOString(),
+            }
+          : t,
+      ),
+    }));
+    get().scheduleSave();
+  },
+
+  restoreTaskFromTrash: (id) => {
+    set((s) => ({
+      tasks: s.tasks.map((t) => {
+        if (t.id !== id) return t;
+        if (t.folderId !== RECENT_DELETED_FOLDER_KEY) return t;
+        const fid = t.trashRestoreFolderId;
+        const { trashRestoreFolderId: _tr, trashedAt: _ts, ...rest } = t;
+        return {
+          ...rest,
+          folderId: fid == null ? undefined : fid,
+        };
+      }),
+    }));
     get().scheduleSave();
   },
 
@@ -502,7 +637,10 @@ export const useAppStore = create<AppState>((set, get) => ({
 
     set((s) => {
       const parent = s.tasks.find((x) => x.id === id);
-      const inheritFolder = parent?.folderId;
+      const inheritFolder =
+        parent?.folderId === RECENT_DELETED_FOLDER_KEY
+          ? undefined
+          : parent?.folderId;
       const inheritTags = parent?.tagIds?.length
         ? [...parent.tagIds]
         : undefined;
@@ -533,7 +671,13 @@ export const useAppStore = create<AppState>((set, get) => ({
 
       const updated = s.tasks.map((x) =>
         x.id === id
-          ? { ...x, completedAt, result: result.trim() || undefined }
+          ? {
+              ...x,
+              completedAt,
+              result: result.trim() || undefined,
+              abandonedAt: undefined,
+              abandonReason: undefined,
+            }
           : x,
       );
 
@@ -599,7 +743,31 @@ export const useAppStore = create<AppState>((set, get) => ({
     set((s) => ({
       tasks: s.tasks.map((x) =>
         x.id === id
-          ? { ...x, completedAt: undefined, result: undefined }
+          ? {
+              ...x,
+              completedAt: undefined,
+              result: undefined,
+              abandonedAt: undefined,
+              abandonReason: undefined,
+            }
+          : x,
+      ),
+    }));
+    get().scheduleSave();
+  },
+
+  abandonTask: (id, reason) => {
+    const abandonedAt = new Date().toISOString();
+    set((s) => ({
+      tasks: s.tasks.map((x) =>
+        x.id === id
+          ? {
+              ...x,
+              abandonedAt,
+              abandonReason: reason.trim() || undefined,
+              completedAt: undefined,
+              result: undefined,
+            }
           : x,
       ),
     }));
@@ -624,6 +792,13 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   removeEdge: (edgeId) => {
     set((s) => ({ edges: s.edges.filter((e) => e.id !== edgeId) }));
+    get().scheduleSave();
+  },
+
+  updateEdge: (edgeId, patch) => {
+    set((s) => ({
+      edges: s.edges.map((e) => (e.id === edgeId ? { ...e, ...patch } : e)),
+    }));
     get().scheduleSave();
   },
 
@@ -727,26 +902,81 @@ export const useAppStore = create<AppState>((set, get) => ({
       if (uniq.length === 0) return s;
 
       const positions = { ...s.layout.positions };
-      const sorted = [...uniq].sort((a, b) => {
-        const pa = positions[a] ?? { x: 0, y: 0 };
-        const pb = positions[b] ?? { x: 0, y: 0 };
-        if (pa.y !== pb.y) return pa.y - pb.y;
-        return pa.x - pb.x;
+      const idSet = new Set(uniq);
+      const adj = new Map<string, string[]>();
+      for (const id of uniq) adj.set(id, []);
+      for (const e of s.edges) {
+        if (!idSet.has(e.source) || !idSet.has(e.target)) continue;
+        adj.get(e.source)!.push(e.target);
+        adj.get(e.target)!.push(e.source);
+      }
+      const seen = new Set<string>();
+      const components: string[][] = [];
+      for (const id of uniq) {
+        if (seen.has(id)) continue;
+        const stack = [id];
+        seen.add(id);
+        const comp: string[] = [];
+        while (stack.length) {
+          const u = stack.pop()!;
+          comp.push(u);
+          for (const v of adj.get(u) ?? []) {
+            if (!seen.has(v)) {
+              seen.add(v);
+              stack.push(v);
+            }
+          }
+        }
+        components.push(comp);
+      }
+      const bboxKey = (ids: string[]) => {
+        let minY = Infinity;
+        let minX = Infinity;
+        for (const i of ids) {
+          const p = positions[i] ?? { x: 0, y: 0 };
+          minY = Math.min(minY, p.y);
+          minX = Math.min(minX, p.x);
+        }
+        return { minY, minX };
+      };
+      components.sort((a, b) => {
+        const ba = bboxKey(a);
+        const bb = bboxKey(b);
+        if (ba.minY !== bb.minY) return ba.minY - bb.minY;
+        return ba.minX - bb.minX;
       });
 
-      const firstId = sorted[0]!;
-      const anchor = positions[firstId] ?? { x: 120, y: 120 };
-      const n = sorted.length;
-      const radius = Math.max(100, 50 * Math.sqrt(n));
-
-      for (let i = 0; i < n; i++) {
-        const id = sorted[i]!;
-        positions[id] = arrangementSphericalAbsolute(anchor, i, n, radius);
+      for (const comp of components) {
+        const sorted = [...comp].sort((a, b) => {
+          const pa = positions[a] ?? { x: 0, y: 0 };
+          const pb = positions[b] ?? { x: 0, y: 0 };
+          if (pa.y !== pb.y) return pa.y - pb.y;
+          return pa.x - pb.x;
+        });
+        let cx = 0;
+        let cy = 0;
+        for (const id of sorted) {
+          const p = positions[id] ?? { x: 0, y: 0 };
+          cx += p.x + LAYOUT_TASK_CARD_W / 2;
+          cy += p.y + LAYOUT_TASK_CARD_H / 2;
+        }
+        cx /= sorted.length;
+        cy /= sorted.length;
+        const anchor = {
+          x: cx - LAYOUT_TASK_CARD_W / 2,
+          y: cy - LAYOUT_TASK_CARD_H / 2,
+        };
+        const n = sorted.length;
+        const radius = Math.max(90, 48 * Math.sqrt(n));
+        for (let i = 0; i < n; i++) {
+          const id = sorted[i]!;
+          positions[id] = arrangementSphericalAbsolute(anchor, i, n, radius);
+        }
       }
 
       Object.assign(
         positions,
-        separateOverlappingAbsolutePositions(positions, sorted),
+        separateOverlappingAbsolutePositions(positions, uniq),
       );
 
       const vis = canvasLayoutVisibleIds(s.tasks, s.navFolderId, s.edges);
@@ -1043,14 +1273,18 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   setTaskFolder: (taskId, folderId) => {
     set((s) => ({
-      tasks: s.tasks.map((t) =>
-        t.id === taskId
-          ? {
-              ...t,
-              ...(folderId ? { folderId } : { folderId: undefined }),
-            }
-          : t,
-      ),
+      tasks: s.tasks.map((t) => {
+        if (t.id !== taskId) return t;
+        const fid = folderId ? folderId : undefined;
+        if (fid === RECENT_DELETED_FOLDER_KEY) return t;
+        return {
+          ...t,
+          folderId: fid,
+          ...(fid !== RECENT_DELETED_FOLDER_KEY
+            ? { trashRestoreFolderId: undefined, trashedAt: undefined }
+            : {}),
+        };
+      }),
     }));
     get().scheduleSave();
   },
@@ -1064,9 +1298,12 @@ export const useAppStore = create<AppState>((set, get) => ({
       const tasks = s.tasks.map((t) => {
         if (!u.has(t.id)) return t;
         const fid = u.get(t.id);
+        if (fid === RECENT_DELETED_FOLDER_KEY) return t;
         return {
           ...t,
           ...(fid ? { folderId: fid } : { folderId: undefined }),
+          trashRestoreFolderId: undefined,
+          trashedAt: undefined,
         };
       });
       const vis = canvasLayoutVisibleIds(tasks, s.navFolderId, s.edges);

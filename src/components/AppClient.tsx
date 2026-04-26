@@ -25,12 +25,11 @@ export function AppClient() {
   const clearSaveError = useAppStore((s) => s.clearSaveError);
   const mode = useAppStore((s) => s.mode);
   const setMode = useAppStore((s) => s.setMode);
-  const hydrate = useAppStore((s) => s.hydrate);
   const [logoutLoading, setLogoutLoading] = useState(false);
 
   useEffect(() => {
-    void hydrate();
-  }, [hydrate]);
+    void useAppStore.getState().hydrate();
+  }, []);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -75,7 +74,7 @@ export function AppClient() {
 
   return (
     <>
-      <header className="flex h-14 shrink-0 items-center justify-between gap-2 border-b border-[var(--md-sys-color-outline)] bg-[var(--md-sys-color-surface-container)]/90 px-4 backdrop-blur-md">
+      <header className="sticky top-0 z-50 flex h-14 shrink-0 items-center justify-between gap-2 border-b border-[var(--md-sys-color-outline)] bg-[var(--md-sys-color-surface-container)]/95 px-4 backdrop-blur-md">
         <div className="flex min-w-0 items-center gap-2">
           <span className="md-type-body-m font-semibold tracking-tight text-md-on-surface">
             Flex-Off
@@ -146,7 +145,7 @@ export function AppClient() {
         </div>
       ) : null}
 
-      <main className="flex min-h-0 flex-1 flex-col">
+      <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
         {mode === "list" ? <ListMode /> : <CanvasView />}
       </main>
     </>

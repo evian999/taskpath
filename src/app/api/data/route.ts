@@ -1,5 +1,4 @@
-import { mkdir, writeFile } from "fs/promises";
-import { join } from "path";
+import { writeFile } from "fs/promises";
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import { getMemoryStore, setMemoryStore } from "@/lib/memory-store";
@@ -12,10 +11,10 @@ import { readSessionCookieValue, verifySessionToken } from "@/lib/session";
 import { isSupabaseConfigured } from "@/lib/supabase/admin";
 import { saveAppDataToSupabase } from "@/lib/supabase/app-data";
 import { parseAppData } from "@/lib/validate";
-
-function userStorePath(userId: string) {
-  return join(process.cwd(), "data", "stores", `${userId}.json`);
-}
+import {
+  ensureUserStoreDir,
+  userStorePath,
+} from "@/lib/user-store-path";
 
 async function getUserId(): Promise<string | null> {
   const jar = await cookies();
@@ -87,7 +86,7 @@ export async function PATCH(request: Request) {
     }
 
     try {
-      await mkdir(join(process.cwd(), "data", "stores"), { recursive: true });
+      await ensureUserStoreDir();
       await writeFile(
         userStorePath(userId),
         JSON.stringify(data, null, 2),
